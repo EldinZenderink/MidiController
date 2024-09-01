@@ -9,3 +9,8 @@ Demonstration:
 ## Installation
 
 See releases!
+
+### Dependencies
+
+python-rtmidi: https://github.com/SpotlightKid/python-rtmidi
+
