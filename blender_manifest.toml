@@ -3,9 +3,9 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "midicontroller"
-version = "1.0.0"
+version = "0.0.2"
 name = "Midicontroller"
-tagline = "This is another extension"
+tagline = "Control objects properties through midi!"
 maintainer = "Eldin Zenderink"
 # Supported types: "add-on", "theme"
 type = "add-on"
@@ -15,9 +15,9 @@ type = "add-on"
 
 # Optional list defined by Blender and server, see:
 # https://docs.blender.org/manual/en/dev/advanced/extensions/tags.html
-tags = ["Animation", "Sequencer"]
+tags = ["Animation"]
 
-blender_version_min = "4.2.0"
+blender_version_min = "3.0.0"
 # # Optional: Blender version that the extension does not support, earlier versions are supported.
 # # This can be omitted and defined later on the extensions platform if an issue is found.
 # blender_version_max = "5.1.0"
@@ -39,10 +39,13 @@ license = [
 
 # Optional: bundle 3rd party Python modules.
 # https://docs.blender.org/manual/en/dev/advanced/extensions/python_wheels.html
-# wheels = [
-#   "./wheels/hexdump-3.3-py3-none-any.whl",
-#   "./wheels/jsmin-3.0.1-py3-none-any.whl",
-# ]
+wheels = [
+  "./wheels/python_rtmidi-1.5.8-cp311-cp311-win_amd64.whl",
+  "./wheels/python_rtmidi-1.5.8-cp311-cp311-manylinux_2_28_x86_64.whl",
+  "./wheels/python_rtmidi-1.5.8-cp311-cp311-manylinux_2_28_aarch64.whl",
+  "./wheels/python_rtmidi-1.5.8-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/python_rtmidi-1.5.8-cp311-cp311-macosx_10_9_x86_64.whl"
+]
 
 # Optional: add-ons can list which resources they will require:
 # * files (for access of any filesystem operations)

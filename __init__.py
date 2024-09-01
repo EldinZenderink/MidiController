@@ -1,7 +1,7 @@
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
+# (at your option   ) any later version.
 #
 # This program is distributed in the hope that it will be useful, but
 # WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -15,20 +15,125 @@ import traceback
 import json
 import copy
 import bpy
+import math
+import site
+import os
+import sys
+import platform
+import subprocess
+
+class MidiController_Dependencies:
+    """Help with installing the dependencies needed, but let the user decide.
+    """
+    required_packages_installed = True
+    finished_installing_package = False
+    progress_printer = []
+
+    def wrap(width, text):
+        lines = []
+
+        arr = text.splitlines()
+        lengthSum = 0
+
+        strSum = ""
+
+        for var in arr:
+            lengthSum+=len(var) + 1
+            if lengthSum <= width:
+                strSum += " " + var
+            else:
+                lines.append(strSum)
+                lengthSum = 0
+                strSum = var
+
+        lines.append(" " + arr[len(arr) - 1])
+
+        return lines
+
+    def get_plugin_install_dir():
+        return os.path.dirname(os.path.realpath(__file__))
+
+    def select_system_package():
+        script_path = MidiController_Dependencies.get_plugin_install_dir()
+        python_version = ""
+        if sys.version_info[1] == 11:
+            python_version = "cp311-cp311"
+        elif sys.version_info[1] == 10:
+            python_version = "cp310-cp310"
+        else:
+            raise Exception(f"Python version: {sys.version} currently unsupported!")
+
+
+        if platform.system() == "Windows":
+            if platform.machine() in ['AMD64', 'x86_64']:
+                return os.path.join(script_path, os.path.join('wheels', f'python_rtmidi-1.5.8-{python_version}-win_amd64.whl'))
+        elif platform.system() == "Darwin":
+            if platform.machine() in ['AMD64', 'x86_64']:
+                return os.path.join(script_path, os.path.join('wheels', f'python_rtmidi-1.5.8-{python_version}-macosx_10_9_x86_64.whl'))
+            if platform.machine() in ['aarch64_be', 'aarch64', 'armv8b', 'armv8l']:
+                return os.path.join(script_path, os.path.join('wheels', f'python_rtmidi-1.5.8-{python_version}-macosx_11_0_arm64.whl'))
+        else: # possibly linux, just gotta try
+            if platform.machine() in ['AMD64', 'x86_64']:
+                return os.path.join(script_path, os.path.join('wheels', f'python_rtmidi-1.5.8-{python_version}-manylinux_2_28_x86_64.whl'))
+            if platform.machine() in ['aarch64_be', 'aarch64', 'armv8b', 'armv8l']:
+                return os.path.join(script_path, os.path.join('wheels', f'python_rtmidi-1.5.8-{python_version}-manylinux_2_28_aarch64.whl'))
+        return None
+
+    def get_python_executable():
+        python_path = ""
+        for path in sys.path:
+            if '\\\\' in path:
+                splitpath = path.split('\\\\')
+                last_in_path = splitpath[-1]
+                if last_in_path == "python":
+                    python_path = path
+            if '\\' in path:
+                splitpath = path.split('\\')
+                last_in_path = splitpath[-1]
+                if last_in_path == "python":
+                    python_path = path
+            if '/' in path:
+                splitpath = path.split('/')
+                last_in_path = splitpath[-1]
+                if last_in_path == "python":
+                    python_path = path
+
+        python_path = os.path.join(python_path, 'bin')
+
+
+        if 'python.exe' in os.listdir(python_path):
+            return os.path.join(python_path, 'python.exe')
+
+        return None
+
+
+    def get_packages_dir():
+        script_path = MidiController_Dependencies.get_plugin_install_dir()
+        site_packages_dir = os.path.join(script_path, 'site-packages')
+        if not os.path.exists(site_packages_dir):
+            MidiController_Dependencies.progress_printer += ["Creating site package dir in plugin directory:"]
+            MidiController_Dependencies.progress_printer += [site_packages_dir]
+            os.makedirs(site_packages_dir)
+        return site_packages_dir
 
 try:
+    site.addsitedir(MidiController_Dependencies.get_packages_dir())
     import rtmidi
-except Exception as e:
-    print(f"Could not find installed python-rtmidi, instead using bundled, but this is windows only! ;(")
-    #https://spotlightkid.github.io/python-rtmidi/license.html
-    from .rtmidi import *
+    MidiController_Dependencies.finished_installing_package = False
+    MidiController_Dependencies.required_packages_installed = True
+    print("imported rtmidi")
+except ImportError as e:
+    print(e)
+    MidiController_Dependencies.finished_installing_package = False
+    MidiController_Dependencies.required_packages_installed = False
+    print("failed importing midi")
 
 bl_info = {
     "name": "MidiController",
     "author": "Eldin Zenderink",
     "description": "",
-    "blender": (2, 80, 0),
-    "version": (0, 0, 1),
+    "blender": (3, 00, 0),
+    "version": (0, 0, 2),
     "location": "",
     "warning": "",
     "category": "Generic"
@@ -924,6 +1029,197 @@ class MidiController_PT_Panel_ImportExport(bpy.types.Panel):
         else:
             layout.label(text="Connect Midi Device First!")
 
+class MidiController_PT_Panel_InstallRequiredPackages(bpy.types.Panel):
+
+    # where to add the panel in the UI
+    # 3D Viewport area (find list of values here https://docs.blender.org/api/current/bpy_types_enum_items/space_type_items.html#rna-enum-space-type-items)
+    bl_space_type = "VIEW_3D"
+    # Sidebar region (find list of values here https://docs.blender.org/api/current/bpy_types_enum_items/region_type_items.html#rna-enum-region-type-items)
+    bl_region_type = "UI"
+
+    bl_category = "MidiController"  # found in the Sidebar
+    bl_label = "Install Dependencies"  # found at the top of the Panel
+
+    def draw(self, context):
+        layout = self.layout
+        print(context.region.width)
+        text = [
+            "Missing python dependency: ",
+            "python-rtmidi",
+            "---",
+            "Please install this package",
+            "By pressing the following button.",
+            "---",
+            "Note: this button starts the",
+            "installation process of the",
+            "wheels package bundled with the",
+            "plugin (part of the zip file),",
+            "it does NOT connect to the",
+            "internet.",
+            "---",
+            "The install of this dependency",
+            "is normally handled by blender,",
+            "however this can silently fail",
+            "due to blender not having permission",
+            "to install the dependency in its",
+            "required location, or due to",
+            "a unknown bug with the install",
+            "procedure.",
+            "---",
+            "It is possible to install the",
+            "plugin correctly, if you start ,",
+            "blender with admin rights. And",
+            "reinstall this plugin (NOT ",
+            "RECOMMENDED!!!).",
+            "If you press the button below",
+            "this plugin will install the ",
+            "dependency in the plugins",
+            "installation directory: ",
+            MidiController_Dependencies.get_plugin_install_dir(),
+            "which does not require admin",
+            "rights.",
+            "---",
+            "To installation process will do",
+            "the following",
+            "1. Create a 'site-packages' directory",
+            "   within this plugins install directory",
+            "2. Select the systems correct wheels package",
+            "   for the dependency delivered with this",
+            "   plugin.",
+            "3. Install the .whl package there and let",
+            "   you save and restart blender so that",
+            "   the plugin can find the dependency",
+            "---",
+            "If you do not trust",
+            "this, please do not continue!",
+            "---",
+            "If you do continue, this is at your",
+            "own risk. I as a developer am not responsible",
+            "for any damages or undesired behavior that",
+            "may follow."
+        ]
+
+        text_finished =[
+            "Finished installing dependencies!",
+            "---",
+            "Reload blender OR press the",
+            "following button to load",
+            "the plugin! You won't see",
+            "this window next time :D."
+        ]
+
+        text_finished_failed = [
+            "Could not finish installing",
+            "plugin, perhaps its a permission",
+            "thing. In that case (not recommended)",
+            "you could start blender as",
+            "administrator.. or wait for",
+            "blender to fix their wheels install",
+            "for plugins (recommended)...",
+        ]
+        if MidiController_Dependencies.required_packages_installed == False:
+            for line in text:
+                row = layout.row()
+                row.ui_units_y -= 7
+                row.label(text=line)
+
+            row = layout.row()
+            row.operator(MidiController_OP_InstallRequiredPackages.bl_idname)
+
+        elif MidiController_Dependencies.finished_installing_package == True and MidiController_Dependencies.required_packages_installed == True:
+            for line in text_finished:
+                row = layout.row()
+                row.ui_units_y -= 7
+                row.label(text=line)
+
+            row = layout.row()
+            row.operator(MidiController_OP_LoadPlugin.bl_idname)
+        elif MidiController_Dependencies.finished_installing_package == True and MidiController_Dependencies.required_packages_installed == False:
+            for line in text_finished_failed:
+                row = layout.row()
+                row.ui_units_y -= 7
+                row.label(text=line)
+
+
+        row.separator()
+        layout.row()
+        box = layout.box()
+        for line in MidiController_Dependencies.progress_printer:
+            row = box.row()
+            row.ui_units_y -= 7
+            row.label(text=line)
+
+class MidiController_OP_InstallRequiredPackages(bpy.types.Operator):
+    bl_label = "Install Packages"
+    bl_idname = "wm.install_packages"
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None
+
+    def execute(self, context):
+        MidiController_Dependencies.progress_printer += ["Selecting wheels package:"]
+        package = MidiController_Dependencies.select_system_package()
+        print(f"Found wheel package to install: {package}")
+        MidiController_Dependencies.progress_printer += [package]
+
+        if package is None:
+            raise Exception("Could not find correct included wheel package for system configuration!")
+
+
+        MidiController_Dependencies.progress_printer += ["Finding plugin site-packages!"]
+        site_packages_dir = MidiController_Dependencies.get_packages_dir()
+        MidiController_Dependencies.progress_printer += ["Found:", site_packages_dir]
+
+        MidiController_Dependencies.progress_printer += ["Finding blender's python binary!"]
+        python_path = MidiController_Dependencies.get_python_executable()
+        MidiController_Dependencies.progress_printer += ["Found:", python_path]
+
+
+        if python_path is not None:
+
+            MidiController_Dependencies.progress_printer += ["Installing wheels into: "]
+            MidiController_Dependencies.progress_printer += [site_packages_dir]
+            result = subprocess.run([python_path, '-m', 'pip', 'install', '-t', site_packages_dir, package])
+            print(result.returncode)
+
+            MidiController_Dependencies.progress_printer += [f"Return code: {result.returncode}"]
+
+            try:
+                import rtmidi
+                MidiController_Dependencies.progress_printer += [f"Success!"]
+                MidiController_Dependencies.required_packages_installed = True
+                MidiController_Dependencies.finished_installing_package = True
+            except Exception as e:
+                print(e)
+                print("Failed installing :(")
+                MidiController_Dependencies.progress_printer += [f"Failed installing :("]
+                MidiController_Dependencies.finished_installing_package = True
+        else:
+            raise Exception("Did not find python binary to use!")
+        return {'FINISHED'}
+
+class MidiController_OP_LoadPlugin(bpy.types.Operator):
+    bl_label = "Save & Restart Blender"
+    bl_idname = "wm.restart_blender"
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None
+
+    def execute(self, context):
+
+        blender_exe = bpy.app.binary_path
+        head, tail = os.path.split(blender_exe)
+        blender_launcher = os.path.join(head,"blender-launcher.exe")
+        try:
+            bpy.ops.wm.save_mainfile()
+        except Exception as e:
+            bpy.ops.wm.save_mainfile('INVOKE_AREA')
+        subprocess.run([blender_launcher, "-con", "--python-expr", "import bpy; bpy.ops.wm.recover_last_session()"])
+        bpy.ops.wm.quit_blender()
+        return {'FINISHED'}
+
 
 classes = (MidiController_PT_Panel_Device,
            MidiController_PT_Panel_Status,
@@ -943,6 +1239,13 @@ classes = (MidiController_PT_Panel_Device,
 
 def register():
 
+    if MidiController_Dependencies.required_packages_installed == False:
+        bpy.utils.register_class(MidiController_PT_Panel_InstallRequiredPackages)
+        bpy.utils.register_class(MidiController_OP_InstallRequiredPackages)
+        bpy.utils.register_class(MidiController_OP_LoadPlugin)
+        return
+
+
     MidiController_Midi.context = bpy.context
     for cls in classes:
         bpy.utils.register_class(cls)
@@ -958,6 +1261,13 @@ def register():
 
 
 def unregister():
+
+    if MidiController_Dependencies.required_packages_installed == False or MidiController_Dependencies.finished_installing_package == True:
+        bpy.utils.unregister_class(MidiController_PT_Panel_InstallRequiredPackages)
+        bpy.utils.unregister_class(MidiController_OP_InstallRequiredPackages)
+        bpy.utils.unregister_class(MidiController_OP_LoadPlugin)
+        return
+
     if MidiController_Midi.midi_open:
         MidiController_Midi.close()
     for cls in classes:
