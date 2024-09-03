@@ -15,7 +15,6 @@ import traceback
 import json
 import copy
 import bpy
-import math
 import site
 import os
 import sys
@@ -106,7 +105,6 @@ class MidiController_Dependencies:
 
         return None
 
-
     def get_packages_dir():
         script_path = MidiController_Dependencies.get_plugin_install_dir()
         site_packages_dir = os.path.join(script_path, 'site-packages')
@@ -132,8 +130,8 @@ bl_info = {
     "name": "MidiController",
     "author": "Eldin Zenderink",
     "description": "",
-    "blender": (3, 00, 0),
-    "version": (0, 0, 2),
+    "blender": (4, 2, 0),
+    "version": (0, 0, 3),
     "location": "",
     "warning": "",
     "category": "Generic"
@@ -153,6 +151,9 @@ class MidiController_Midi():
     midi_last_control_velocity = 0
     midi_control_to_map = None
 
+    # settings
+    loaded_from_blend = False
+
     # State machine stuff
     class State:
         NONE = 0
@@ -165,7 +166,7 @@ class MidiController_Midi():
         EDIT = 1
 
     # State machine stuff
-    class KeyFrameBindingState:
+    class ControllerButtonBindingState:
         NONE = 0
         PENDING = 1
 
@@ -192,7 +193,13 @@ class MidiController_Midi():
 
     # Controller to register keyframe(s) (note: all properties)
     key_frame_control = None
-    bind_control_state = KeyFrameBindingState.NONE
+    bind_control_state = ControllerButtonBindingState.NONE
+    button_velocity_pressed = 0
+
+    # Selection group buttons bound
+    selection_to_map = None
+    bind_selection_state = ControllerButtonBindingState.NONE
+    controller_selection_mapping = {}
     button_velocity_pressed = 0
 
     # midi update rate
@@ -462,21 +469,74 @@ class MidiController_Midi():
                         print(
                             "Ugly but functional way to skip properties that are not part of the selected object")
 
+    def save_to_blend():
+        to_save = {
+            "controller_names": MidiController_Midi.controller_names,
+            "controller_mapping": MidiController_Midi.controller_property_mapping,
+            "selection_groups": MidiController_Midi.controller_selection_mapping,
+            "controller_keyframe_bind": {"controller": MidiController_Midi.key_frame_control, "velocity": MidiController_Midi.button_velocity_pressed}
+        }
+        try:
+            setattr(MidiController_Midi.context.scene, 'midicontrol_data', json.dumps(to_save))
+        except Exception as e:
+            print(e)
+
+    def load_from_blend():
+        try:
+            if hasattr(MidiController_Midi.context.scene, 'midicontrol_data')  and MidiController_Midi.loaded_from_blend == False:
+                json_object = json.loads(getattr(MidiController_Midi.context.scene, 'midicontrol_data'))
+                MidiController_Midi.controller_names = json_object["controller_names"]
+                MidiController_Midi.controller_property_mapping = json_object["controller_mapping"]
+                MidiController_Midi.controller_selection_mapping = json_object["selection_groups"]
+                MidiController_Midi.key_frame_control = json_object[
+                    "controller_keyframe_bind"]["controller"]
+                MidiController_Midi.button_velocity_pressed = json_object[
+                    "controller_keyframe_bind"]["velocity"]
+                MidiController_Midi.loaded_from_blend  = True
+        except Exception as e:
+            print(e)
+
+
+    def select_objects(objects):
+        bpy.ops.object.select_all(action='DESELECT')
+        for objname in objects:
+            bpy.data.objects[objname].select_set(True)
+
     def midi_callback(midi_data):
         velocity = midi_data[0][0]
         control = midi_data[0][1]
         value = midi_data[0][2]
 
         if velocity != MidiController_Midi.midi_last_control_velocity:
-            if MidiController_Midi.bind_control_state == MidiController_Midi.KeyFrameBindingState.PENDING:
+            if MidiController_Midi.bind_control_state == MidiController_Midi.ControllerButtonBindingState.PENDING:
                 MidiController_Midi.key_frame_control = control
 
                 if str(control) == str(MidiController_Midi.key_frame_control):
                     if MidiController_Midi.button_velocity_pressed == 0:
                         MidiController_Midi.button_velocity_pressed = velocity
-                        MidiController_Midi.bind_control_state = MidiController_Midi.KeyFrameBindingState.NONE
+                        MidiController_Midi.bind_control_state = MidiController_Midi.ControllerButtonBindingState.NONE
+
+                        # MidiController_Midi.save_to_blend()
+
                     elif velocity == MidiController_Midi.button_velocity_pressed:
                         MidiController_Midi.insert_keyframes()
+
+
+            if MidiController_Midi.bind_selection_state == MidiController_Midi.ControllerButtonBindingState.PENDING:
+                if MidiController_Midi.button_velocity_pressed == 0:
+                    new_selection_mapping = {
+                        "name": MidiController_Midi.selection_to_map["name"],
+                        "selected_objects": MidiController_Midi.selection_to_map["selected"],
+                        "velocity": velocity
+                    }
+                    MidiController_Midi.controller_selection_mapping[str(control)] = new_selection_mapping
+                    MidiController_Midi.bind_selection_state = MidiController_Midi.ControllerButtonBindingState.NONE
+                    # MidiController_Midi.save_to_blend()
+
+            else:
+                if str(control) in MidiController_Midi.controller_selection_mapping:
+                    MidiController_Midi.select_objects(MidiController_Midi.controller_selection_mapping[str(control)]["selected_objects"])
+
 
             if str(control) == str(MidiController_Midi.key_frame_control) and velocity == MidiController_Midi.button_velocity_pressed:
                 MidiController_Midi.insert_keyframes()
@@ -499,6 +559,7 @@ class MidiController_Midi():
                     max = mapping["max"]
                     new_value = (((max - min) / 127) * value) + min
                     MidiController_Midi.update_data(mapping, new_value)
+
 
                 MidiController_Midi.midi_control_to_map = control
 
@@ -533,6 +594,8 @@ class MidiController_OP_FindMidi(bpy.types.Operator):
     def execute(self, context):
         MidiController_Midi.midi_input = rtmidi.MidiIn()
         MidiController_Midi.available_ports = MidiController_Midi.midi_input.get_ports()
+        # Very cheeky
+        # MidiController_Midi.load_from_blend()
         return {"FINISHED"}
 
 
@@ -597,6 +660,9 @@ class MidiController_OP_SavePropertyMapping(bpy.types.Operator):
             MidiController_Midi.midi_control_to_map = None
             MidiController_Midi.current_mapping_state = MidiController_Midi.State.REGISTER_CONTROL
 
+        # Very cheeky
+        # MidiController_Midi.save_to_blend()
+
         return {"FINISHED"}
 
 
@@ -655,6 +721,8 @@ class MidiController_OP_UpdatePropertyMapping(bpy.types.Operator):
             MidiController_Midi.editting_index = None
             MidiController_Midi.edit_state = MidiController_Midi.EditState.NONE
 
+        # Very cheeky
+        # MidiController_Midi.save_to_blend()
         return {"FINISHED"}
 
 
@@ -667,12 +735,59 @@ class MidiController_OP_UpdateKeyFrameMapping(bpy.types.Operator):
 
     def execute(self, context):
         if self.start:
-            MidiController_Midi.bind_control_state = MidiController_Midi.KeyFrameBindingState.PENDING
+            MidiController_Midi.bind_control_state = MidiController_Midi.ControllerButtonBindingState.PENDING
         elif self.reset:
-            MidiController_Midi.bind_control_state = MidiController_Midi.KeyFrameBindingState.NONE
+            MidiController_Midi.bind_control_state = MidiController_Midi.ControllerButtonBindingState.NONE
             MidiController_Midi.key_frame_control = None
+        # Very cheeky
+        # MidiController_Midi.save_to_blend()
         return {"FINISHED"}
 
+class MidiController_OP_MapSelectionGroup(bpy.types.Operator):
+    bl_idname = "wm.map_selection_group"
+    bl_label = "Map Selection Group"
+
+    name: bpy.props.StringProperty(default="")
+    start: bpy.props.BoolProperty(default=False)
+    cancel: bpy.props.BoolProperty(default=False)
+
+    def execute(self, context):
+        if self.start:
+            array = None
+            for obj in bpy.context.selected_objects:
+                if array is None:
+                    array = [obj.name]
+                else:
+                    array += [obj.name]
+            to_map = {
+                "selected": array,
+                "name": self.name
+            }
+            MidiController_Midi.selection_to_map = copy.copy(to_map)
+            MidiController_Midi.bind_selection_state = MidiController_Midi.ControllerButtonBindingState.PENDING
+        else:
+            MidiController_Midi.selection_to_map = None
+            MidiController_Midi.bind_selection_state = MidiController_Midi.ControllerButtonBindingState.NONE
+
+        # Very cheeky
+        # MidiController_Midi.save_to_blend()
+        return {"FINISHED"}
+
+class MidiController_OP_DeleteSelectionGroup(bpy.types.Operator):
+    bl_idname = "wm.delete_selection_group"
+    bl_label = "Delete"
+
+    controller: bpy.props.StringProperty(default="")
+    def execute(self, context):
+        try:
+            MidiController_Midi.controller_selection_mapping.pop(self.controller, None)
+        except Exception as e:
+            print(f"Guess we leakin now...")
+            print(e)
+            pass
+        # Very cheeky
+        # MidiController_Midi.save_to_blend()
+        return {"FINISHED"}
 
 class MidiController_OP_Save(bpy.types.Operator):
     bl_label = "Export Mapping"
@@ -689,10 +804,13 @@ class MidiController_OP_Save(bpy.types.Operator):
         to_save = {
             "controller_names": MidiController_Midi.controller_names,
             "controller_mapping": MidiController_Midi.controller_property_mapping,
+            "selection_groups": MidiController_Midi.controller_selection_mapping,
             "controller_keyframe_bind": {"controller": MidiController_Midi.key_frame_control, "velocity": MidiController_Midi.button_velocity_pressed}
         }
         with open(self.filepath, "w") as outfile:
             outfile.write(json.dumps(to_save))
+        # Very cheeky
+        # MidiController_Midi.save_to_blend()
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -718,6 +836,7 @@ class MidiController_OP_Load(bpy.types.Operator):
             json_object = json.load(openfile)
             MidiController_Midi.controller_names = json_object["controller_names"]
             MidiController_Midi.controller_property_mapping = json_object["controller_mapping"]
+            MidiController_Midi.controller_selection_mapping = json_object["selection_groups"]
             MidiController_Midi.key_frame_control = json_object[
                 "controller_keyframe_bind"]["controller"]
             MidiController_Midi.button_velocity_pressed = json_object[
@@ -743,6 +862,10 @@ class MidiController_PT_Panel_Device(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+
+
+        # Very cheeky
+        # MidiController_Midi.save_to_blend()
 
         MidiController_Midi.screens = bpy.data.screens
         """define the layout of the panel"""
@@ -826,7 +949,7 @@ class MidiController_PT_Panel_BindKeyFrameInput(bpy.types.Panel):
                 op.reset = False
                 op.start = True
 
-                if MidiController_Midi.bind_control_state == MidiController_Midi.KeyFrameBindingState.PENDING:
+                if MidiController_Midi.bind_control_state == MidiController_Midi.ControllerButtonBindingState.PENDING:
                     row = box.row()
                     row.label(text="Press a button to bind!")
 
@@ -940,7 +1063,7 @@ class MidiController_PT_Panel_MappedControls(bpy.types.Panel):
             box = layout.box()
             if MidiController_Midi.edit_state == MidiController_Midi.EditState.NONE:
                 for controller, mapping in MidiController_Midi.controller_property_mapping.items():
-                    box.separator(type='LINE')
+                    box.separator()
                     nbox = box.box()
                     controller_names = controller
                     if controller in MidiController_Midi.controller_names:
@@ -1026,6 +1149,57 @@ class MidiController_PT_Panel_ImportExport(bpy.types.Panel):
             row.operator(MidiController_OP_Save.bl_idname)
             row = box.row()
             row.operator(MidiController_OP_Load.bl_idname)
+        else:
+            layout.label(text="Connect Midi Device First!")
+
+class MidiController_PT_Panel_SelectionGroups(bpy.types.Panel):
+
+    # where to add the panel in the UI
+    # 3D Viewport area (find list of values here https://docs.blender.org/api/current/bpy_types_enum_items/space_type_items.html#rna-enum-space-type-items)
+    bl_space_type = "VIEW_3D"
+    # Sidebar region (find list of values here https://docs.blender.org/api/current/bpy_types_enum_items/region_type_items.html#rna-enum-region-type-items)
+    bl_region_type = "UI"
+
+    bl_category = "MidiController"  # found in the Sidebar
+    bl_label = "Selection Groups"  # found at the top of the Panel
+
+    def draw(self, context):
+        layout = self.layout
+
+        if MidiController_Midi.midi_open:
+            layout.label(text="Map Current Selection")
+            if MidiController_Midi.bind_selection_state == MidiController_Midi.ControllerButtonBindingState.NONE:
+                box = layout.box()
+                row = box.row()
+                row.prop(context.scene, 'control_name_input', text="Selection Name")
+                row = box.row()
+                op = row.operator(MidiController_OP_MapSelectionGroup.bl_idname)
+                op.name = context.scene.control_name_input
+                op.start = True
+                op.cancel = False
+            else:
+                box = layout.box()
+                row = box.row()
+                row.label(text=f"Press button to map: {MidiController_Midi.selection_to_map['name']}!")
+                row = box.row()
+                row.operator(MidiController_OP_MapSelectionGroup.bl_idname, text=f"Cancel")
+                op.cancel = True
+                op.start = False
+
+            row = layout.row()
+            row.label(text="Current Mappings")
+            row = layout.row()
+            row.separator()
+
+            for controller, mapped in MidiController_Midi.controller_selection_mapping.items():
+                row = layout.row()
+                nbox = row.box()
+                nbox.label(text=f"{mapped['name']}")
+                row = nbox.row()
+                op = row.operator(
+                    MidiController_OP_DeleteSelectionGroup.bl_idname, text=f"Delete")
+                op.controller = controller
+
         else:
             layout.label(text="Connect Midi Device First!")
 
@@ -1226,6 +1400,7 @@ classes = (MidiController_PT_Panel_Device,
            MidiController_PT_Panel_BindKeyFrameInput,
            MidiController_PT_Panel_RegisterControllerMapping,
            MidiController_PT_Panel_MappedControls,
+           MidiController_PT_Panel_SelectionGroups,
            MidiController_PT_Panel_ImportExport,
            MidiController_OP_FindMidi,
            MidiController_OP_ConnectMidi,
@@ -1233,6 +1408,8 @@ classes = (MidiController_PT_Panel_Device,
            MidiController_OP_SavePropertyMapping,
            MidiController_OP_UpdatePropertyMapping,
            MidiController_OP_UpdateKeyFrameMapping,
+           MidiController_OP_MapSelectionGroup,
+           MidiController_OP_DeleteSelectionGroup,
            MidiController_OP_Save,
            MidiController_OP_Load)
 
