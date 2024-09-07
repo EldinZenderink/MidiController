@@ -41,6 +41,7 @@ class MidiController_Midi():
     class ControllerButtonBindingState:
         NONE = 0
         PENDING = 1
+        BOUND = 2
 
     # The current mapping state
     current_mapping_state = State.NONE
@@ -53,14 +54,13 @@ class MidiController_Midi():
 
     # Map a midi control to a property somehow
     mapping_pending = None
+    mapping_error = None
     controller_property_mapping = {}
     properties_to_skip = []
     controller_names = {}
 
     # Controller to edit
     editting_controller = None
-    editting_mapped = None
-    editting_index = None
     edit_state = EditState.NONE
 
     # Controller to register keyframe(s) (note: all properties)
@@ -74,6 +74,26 @@ class MidiController_Midi():
     controller_selection_mapping = {}
     button_velocity_pressed = 0
 
+    # Frame position update
+    controllers_to_set_frame = {
+        "increase": {
+            "state": ControllerButtonBindingState.NONE,
+            "controller": None  # changes from the current frame into future frames
+        },
+        "decrease": {
+            "state": ControllerButtonBindingState.NONE,
+            # changes from the current frame into the past frames.
+            "controller": None
+        },
+        # this is the resolution of the control (127/5 = 25.4 = 25 frames starting from the current frame)
+        "frame_control_resolution": 5,
+        # this allows for the system ot change the last frame position to the newly changed after this amount of time seeing no changes.
+        "timeout": 1,
+    }
+
+    controllers_to_set_frame_current_frame = 0
+    controllers_to_set_frame_timeout = 1
+
     # midi update rate
     midi_update_rate = 0.08
 
@@ -86,7 +106,7 @@ class MidiController_Midi():
 
     # class for usage in timer to read midi input
 
-    def parse_midi_messages(self):
+    def parse_midi_messages_update(self):
         try:
             if self.midi_input is not None and self.midi_input.is_port_open():
                 last_data = None
@@ -96,13 +116,15 @@ class MidiController_Midi():
                     data = self.midi_input.get_message()
                 if last_data is not None:
                     self.midi_callback(last_data)
+            else:
+                self.close()
         except Exception as e:
             print("Failed reading from midi controller!")
             print(traceback.format_exc())
             print(e)
         return self.midi_update_rate
 
-    def listen_for_property_changes(self):
+    def obj_prop_change_update(self):
         # print("Listening for property changes!")
         try:
             if bpy.context.screen.is_animation_playing:
@@ -138,7 +160,7 @@ class MidiController_Midi():
                 # default props
                 # print("attr in obj:")
                 # print(len(dir(obj)))
-                if len(dir(obj)) < 200:
+                if len(dir(obj)) < 400:
                     for prop in dir(obj):
                         if str(type(getattr(obj, prop))) in self.accepted_types:
                             if str(type(getattr(obj, prop))) in ["<class 'Vector'>"]:
@@ -189,9 +211,11 @@ class MidiController_Midi():
                                 new_obj['value'] = getattr(obj, prop)
                                 self.current_object_data[f"{prop}"] = copy.copy(
                                     new_obj)
+                else:
+                    self.mapping_error = f"Failed parsing properties, too many!"
 
                 # custom props
-                if len(obj.keys()) > 1 and len(obj.keys()) < 200:
+                if len(obj.keys()) > 1 and len(obj.keys()) < 400:
                     # First item is _RNA_UI
                     for K in obj.keys():
                         if K not in '_RNA_UI':
@@ -249,6 +273,8 @@ class MidiController_Midi():
                                     new_obj["type"] = str(type(value))
                                     self.current_object_data[prop] = copy.copy(
                                         new_obj)
+                else:
+                    self.mapping_error = f"Failed parsing properties, too many!"
 
                 if self.previous_object == self.current_object and is_new == False:
                     for key, value in self.current_object_data.items():
@@ -263,16 +289,26 @@ class MidiController_Midi():
 
                 self.previous_object = copy.copy(
                     self.current_object)
+
                 self.previous_object_data = copy.copy(
                     self.current_object_data)
 
                 return self.midi_update_rate
         except Exception as e:
+            self.mapping_error = f"Failed detecting changes."
             print("Failed detecting changes in object!")
             print(traceback.format_exc())
             print(e)
 
         return self.midi_update_rate
+
+    def frame_update(self):
+        if self.controllers_to_set_frame_timeout > 0:
+            self.controllers_to_set_frame_timeout -= self.midi_update_rate
+            self.redraw_ui()
+        else:
+            self.controllers_to_set_frame_timeout = 0
+            self.controllers_to_set_frame_current_frame = bpy.context.scene.frame_current
 
     def redraw_ui(self):
         for screen in self.screens:
@@ -313,9 +349,9 @@ class MidiController_Midi():
                 elif mapping["type"] in ["<class 'float'>"]:
                     setattr(obj, mapping["property"], float(new_value))
 
-            # changing the location of the object refreshes the object, which is hack AF
-            getattr(obj, "location")[0] = copy.copy(
-                getattr(obj, "location")[0])
+            # This refreshes it... for some reason.
+            # see: https://projects.blender.org/blender/blender/issues/74000
+            obj.hide_render = obj.hide_render
 
     def insert_keyframes(self):
         for obj in bpy.context.selected_objects:
@@ -339,6 +375,27 @@ class MidiController_Midi():
                         print(e)
                         print(
                             "Ugly but functional way to skip properties that are not part of the selected object")
+
+    def control_frame(self, direction, raw_value):
+        self.controllers_to_set_frame_timeout = self.controllers_to_set_frame["timeout"]
+        frames_to_add = int(
+            raw_value / self.controllers_to_set_frame["frame_control_resolution"] + 0.5)
+        try:
+            if direction == "increase":
+                new_frame = self.controllers_to_set_frame_current_frame + frames_to_add
+                bpy.context.scene.frame_set(new_frame)
+            else:
+                new_frame = self.controllers_to_set_frame_current_frame - frames_to_add
+                if (self.controllers_to_set_frame_current_frame != new_frame):
+                    if new_frame > 0:
+                        bpy.context.scene.frame_set(new_frame)
+                    else:
+                        bpy.context.scene.frame_set(0)
+                    self.redraw_ui()
+
+        except Exception as e:
+            print("Failed updating frame somehow...")
+            print(e)
 
     def save_to_blend(self):
         to_save = {
@@ -433,14 +490,26 @@ class MidiController_Midi():
 
                 self.midi_control_to_map = control
 
+            if self.controllers_to_set_frame["increase"]["state"] == self.ControllerButtonBindingState.PENDING:
+                self.controllers_to_set_frame["increase"]["controller"] = control
+                self.controllers_to_set_frame["increase"]["state"] = self.ControllerButtonBindingState.BOUND
+            elif self.controllers_to_set_frame["increase"]["controller"] == control:
+                self.control_frame("increase", value)
+
+            if self.controllers_to_set_frame["decrease"]["state"] == self.ControllerButtonBindingState.PENDING:
+                self.controllers_to_set_frame["decrease"]["controller"] = control
+                self.controllers_to_set_frame["decrease"]["state"] = self.ControllerButtonBindingState.BOUND
+            elif self.controllers_to_set_frame["decrease"]["controller"] == control:
+                self.control_frame("decrease", value)
+
         self.midi_last_control_changed = control
         self.midi_last_control_value = value
         self.redraw_ui()
 
     def close(self):
         if self.midi_open:
-            self.midi_input.cancel_callback()
-            self.midi_input.close_port()
+            if self.midi_input.is_port_open():
+                self.midi_input.close_port()
             self.midi_input.delete()
             print(
                 f"Closed midi controller: {self.connected_controller}")
@@ -469,23 +538,14 @@ class MidiController_Midi():
 
             # Map a midi control to a property somehow
             self.mapping_pending = None
-            self.controller_property_mapping = {}
-            self.properties_to_skip = []
-            self.controller_names = {}
 
             # Controller to edit
             self.editting_controller = None
-            self.editting_mapped = None
-            self.editting_index = None
             self.edit_state = self.EditState.NONE
 
             # Controller to register keyframe(s) (note: all properties)
             self.key_frame_control = None
-            self.bind_control_state = self.ControllerButtonBindingState.NONE
-            self.button_velocity_pressed = 0
 
             # Selection group buttons bound
             self.selection_to_map = None
             self.bind_selection_state = self.ControllerButtonBindingState.NONE
-            self.controller_selection_mapping = {}
-            self.button_velocity_pressed = 0
