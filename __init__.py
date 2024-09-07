@@ -42,7 +42,7 @@ bl_info = {
     "author": "Eldin Zenderink",
     "description": "",
     "blender": (3, 0, 0),
-    "version": (0, 0, 4),
+    "version": (0, 0, 5),
     "location": "",
     "warning": "",
     "category": "Generic"
