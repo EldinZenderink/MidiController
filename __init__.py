@@ -236,9 +236,9 @@ class MIDICONTROLLER_OP_UpdateKeyFrameMapping(bpy.types.Operator):
         midi_control = scene.MidiControl
 
         if self.start:
-            midi_control.bind_control_state = midi_control.ControllerButtonBindingState.PENDING
+            midi_control.key_frame_bind_control_state = midi_control.ControllerButtonBindingState.PENDING
         elif self.reset:
-            midi_control.bind_control_state = midi_control.ControllerButtonBindingState.NONE
+            midi_control.key_frame_bind_control_state = midi_control.ControllerButtonBindingState.NONE
             midi_control.key_frame_control = None
         # Very cheeky
         # midi_control.save_to_blend()
@@ -270,10 +270,10 @@ class MIDICONTROLLER_OP_MapSelectionGroup(bpy.types.Operator):
                 "name": self.name
             }
             midi_control.selection_to_map = copy.copy(to_map)
-            midi_control.bind_selection_state = midi_control.ControllerButtonBindingState.PENDING
+            midi_control.select_group_bind_selection_state = midi_control.ControllerButtonBindingState.PENDING
         else:
             midi_control.selection_to_map = None
-            midi_control.bind_selection_state = midi_control.ControllerButtonBindingState.NONE
+            midi_control.select_group_bind_selection_state = midi_control.ControllerButtonBindingState.NONE
 
         # Very cheeky
         # midi_control.save_to_blend()
@@ -538,7 +538,7 @@ class MIDICONTROLLER_PT_Panel_BindKeyFrameInput(bpy.types.Panel):
                 op.reset = False
                 op.start = True
 
-                if midi_control.bind_control_state == midi_control.ControllerButtonBindingState.PENDING:
+                if midi_control.key_frame_bind_control_state == midi_control.ControllerButtonBindingState.PENDING:
                     row = box.row()
                     row.label(text="Press a button to bind!")
 
@@ -761,7 +761,7 @@ class MIDICONTROLLER_PT_Panel_SelectionGroups(bpy.types.Panel):
 
         if midi_control.midi_open:
             layout.label(text="Map Current Selection")
-            if midi_control.bind_selection_state == midi_control.ControllerButtonBindingState.NONE:
+            if midi_control.select_group_bind_selection_state != midi_control.ControllerButtonBindingState.PENDING:
                 box = layout.box()
                 row = box.row()
                 row.label(text="Selection Group Name:")

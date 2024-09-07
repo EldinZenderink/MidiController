@@ -65,14 +65,14 @@ class MidiController_Midi():
 
     # Controller to register keyframe(s) (note: all properties)
     key_frame_control = None
-    bind_control_state = ControllerButtonBindingState.NONE
-    button_velocity_pressed = 0
+    key_frame_bind_control_state = ControllerButtonBindingState.NONE
+    keyframe_insert_button_velocity_pressed = 0
 
     # Selection group buttons bound
     selection_to_map = None
-    bind_selection_state = ControllerButtonBindingState.NONE
+    select_group_bind_selection_state = ControllerButtonBindingState.NONE
     controller_selection_mapping = {}
-    button_velocity_pressed = 0
+    select_group_button_velocity_pressed = 0
 
     # Frame position update
     controllers_to_set_frame = {
@@ -211,6 +211,7 @@ class MidiController_Midi():
                                 new_obj['value'] = getattr(obj, prop)
                                 self.current_object_data[f"{prop}"] = copy.copy(
                                     new_obj)
+                    self.mapping_error = None
                 else:
                     self.mapping_error = f"Failed parsing properties, too many!"
 
@@ -273,6 +274,7 @@ class MidiController_Midi():
                                     new_obj["type"] = str(type(value))
                                     self.current_object_data[prop] = copy.copy(
                                         new_obj)
+                    self.mapping_error = None
                 else:
                     self.mapping_error = f"Failed parsing properties, too many!"
 
@@ -311,13 +313,14 @@ class MidiController_Midi():
             self.controllers_to_set_frame_current_frame = bpy.context.scene.frame_current
 
     def redraw_ui(self):
-        for screen in self.screens:
-            try:
+        if self.screens == None:
+            return
+        try:
+            for screen in self.screens:
                 for area in screen.areas:
                     area.tag_redraw()
-            except Exception as e:
-                print(e)
-                print("Screen error")
+        except Exception as e:
+            print("Screen error")
 
     def update_data(self, mapping, new_value):
         for obj in bpy.context.selected_objects:
@@ -402,7 +405,7 @@ class MidiController_Midi():
             "controller_names": self.controller_names,
             "controller_mapping": self.controller_property_mapping,
             "selection_groups": self.controller_selection_mapping,
-            "controller_keyframe_bind": {"controller": self.key_frame_control, "velocity": self.button_velocity_pressed}
+            "controller_keyframe_bind": {"controller": self.key_frame_control, "velocity": self.keyframe_insert_button_velocity_pressed}
         }
         try:
             setattr(self.context.scene, 'midicontrol_data', json.dumps(to_save))
@@ -419,7 +422,7 @@ class MidiController_Midi():
                 self.controller_selection_mapping = json_object["selection_groups"]
                 self.key_frame_control = json_object[
                     "controller_keyframe_bind"]["controller"]
-                self.button_velocity_pressed = json_object[
+                self.keyframe_insert_button_velocity_pressed = json_object[
                     "controller_keyframe_bind"]["velocity"]
                 self.loaded_from_blend = True
         except Exception as e:
@@ -436,38 +439,36 @@ class MidiController_Midi():
         value = midi_data[0][2]
 
         if velocity != self.midi_last_control_velocity:
-            if self.bind_control_state == self.ControllerButtonBindingState.PENDING:
+            if self.key_frame_bind_control_state == self.ControllerButtonBindingState.PENDING:
                 self.key_frame_control = control
-
-                if str(control) == str(self.key_frame_control):
-                    if self.button_velocity_pressed == 0:
-                        self.button_velocity_pressed = velocity
-                        self.bind_control_state = self.ControllerButtonBindingState.NONE
-
+                self.keyframe_insert_button_velocity_pressed = velocity
                         # self.save_to_blend()
+                self.key_frame_bind_control_state = self.ControllerButtonBindingState.BOUND
 
-                    elif velocity == self.button_velocity_pressed:
-                        self.insert_keyframes()
+            elif self.select_group_bind_selection_state == self.ControllerButtonBindingState.PENDING:
+                new_selection_mapping = {
+                    "name": self.selection_to_map["name"],
+                    "selected_objects": self.selection_to_map["selected"],
+                    "velocity": velocity
+                }
+                self.controller_selection_mapping[str(
+                    control)] = new_selection_mapping
+                self.select_group_button_velocity_pressed = velocity
 
-            if self.bind_selection_state == self.ControllerButtonBindingState.PENDING:
-                if self.button_velocity_pressed == 0:
-                    new_selection_mapping = {
-                        "name": self.selection_to_map["name"],
-                        "selected_objects": self.selection_to_map["selected"],
-                        "velocity": velocity
-                    }
-                    self.controller_selection_mapping[str(
-                        control)] = new_selection_mapping
-                    self.bind_selection_state = self.ControllerButtonBindingState.NONE
+                self.select_group_bind_selection_state = self.ControllerButtonBindingState.BOUND
+
+            elif self.key_frame_bind_control_state == self.ControllerButtonBindingState.BOUND and \
+                velocity == self.keyframe_insert_button_velocity_pressed and \
+                self.key_frame_control == control:
+                self.insert_keyframes()
+
                     # self.save_to_blend()
-
-            else:
+            elif self.select_group_bind_selection_state == self.ControllerButtonBindingState.BOUND and \
+                velocity == self.select_group_button_velocity_pressed:
                 if str(control) in self.controller_selection_mapping:
                     self.select_objects(
                         self.controller_selection_mapping[str(control)]["selected_objects"])
 
-            if str(control) == str(self.key_frame_control) and velocity == self.button_velocity_pressed:
-                self.insert_keyframes()
 
             self.midi_last_control_velocity = velocity
 
