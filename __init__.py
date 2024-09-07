@@ -24,7 +24,9 @@ from .MidiControl import *
 
 
 try:
-    site.addsitedir(MidiController_Dependencies.get_packages_dir())
+    if bpy.app.version < (4, 2, 0):
+        print("In older versions we install wheels in a local directory relative to the add-on")
+        site.addsitedir(MidiController_Dependencies.get_packages_dir())
     import rtmidi
     MidiController_Dependencies.finished_installing_package = False
     MidiController_Dependencies.required_packages_installed = True

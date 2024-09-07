@@ -4,6 +4,7 @@
 import os
 import sys
 import platform
+import bpy
 
 
 class MidiController_Dependencies:
@@ -65,27 +66,33 @@ class MidiController_Dependencies:
 
     def get_python_executable():
         python_path = ""
-        for path in sys.path:
-            if '\\\\' in path:
-                splitpath = path.split('\\\\')
-                last_in_path = splitpath[-1]
-                if last_in_path == "python":
-                    python_path = path
-            if '\\' in path:
-                splitpath = path.split('\\')
-                last_in_path = splitpath[-1]
-                if last_in_path == "python":
-                    python_path = path
-            if '/' in path:
-                splitpath = path.split('/')
-                last_in_path = splitpath[-1]
-                if last_in_path == "python":
-                    python_path = path
+        for path in bpy.utils.script_paths():
+            if '\\\\' in bpy.app.binary_path:
+                splitpath = bpy.app.binary_path.split('\\\\')
+                last_in_path = splitpath[-2]
+                if last_in_path in path:
+                    basepath = '\\\\'.join(path.split('\\\\')[0:-1])
+                    python_path = os.path.join(basepath, os.path.join("python", "bin"))
+            if '\\'  in bpy.app.binary_path:
+                splitpath = bpy.app.binary_path.split('\\')
+                last_in_path = splitpath[-2]
+                if last_in_path in path:
+                    basepath = '\\'.join(path.split('\\')[0:-1])
+                    python_path = os.path.join(basepath, os.path.join("python", "bin"))
+            if '/'  in bpy.app.binary_path:
+                splitpath = bpy.app.binary_path.split('/')
+                last_in_path = splitpath[-2]
+                if last_in_path in path:
+                    basepath = '/'.join(path.split('/')[0:-1])
+                    python_path = os.path.join(basepath, os.path.join("python", "bin"))
 
-        python_path = os.path.join(python_path, 'bin')
-
-        if 'python.exe' in os.listdir(python_path):
-            return os.path.join(python_path, 'python.exe')
+        print(f"Python path: {python_path}")
+        if '/' in python_path:
+            if 'python' in os.listdir(python_path):
+                return os.path.join(python_path, 'python')
+        else:
+            if 'python.exe' in os.listdir(python_path):
+                return os.path.join(python_path, 'python.exe')
 
         return None
 
