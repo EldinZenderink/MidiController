@@ -366,8 +366,8 @@ class MIDICONTROLLER_OP_Save(bpy.types.Operator):
         to_save = {
             "controller_names": midi_control.controller_names,
             "controller_mapping": midi_control.controller_property_mapping,
-            "selection_groups": midi_control.controller_selection_mapping,
-            "controller_keyframe_bind": {"controller": midi_control.key_frame_control, "velocity": midi_control.button_velocity_pressed},
+            "selection_groups": {"mapping": midi_control.controller_selection_mapping, "velocity": midi_control.select_group_button_velocity_pressed},
+            "controller_keyframe_bind": {"controller": midi_control.key_frame_control, "velocity": midi_control.keyframe_insert_button_velocity_pressed},
             "frame_control": midi_control.controllers_to_set_frame
         }
         with open(self.filepath, "w") as outfile:
@@ -408,12 +408,14 @@ class MIDICONTROLLER_OP_Load(bpy.types.Operator):
                 "controller_mapping"]
             midi_control.key_frame_control = json_object[
                 "controller_keyframe_bind"]["controller"]
-            midi_control.button_velocity_pressed = json_object[
+            midi_control.keyframe_insert_button_velocity_pressed = json_object[
                 "controller_keyframe_bind"]["velocity"]
 
             if "selection_groups" in json_object:
                 midi_control.controller_selection_mapping = json_object[
-                    "selection_groups"]
+                    "selection_groups"]["mapping"]
+                midi_control.select_group_button_velocity_pressed = json_object[
+                    "selection_groups"]["velocity"]
 
             if "frame_control" in json_object:
                 midi_control.controllers_to_set_frame = json_object[
