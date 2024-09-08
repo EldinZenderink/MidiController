@@ -24,7 +24,7 @@ class MidiController_Midi():
     midi_control_to_map = None
 
     # settings
-    loaded_from_blend = False
+    loaded_json = {}
 
     # State machine stuff
     class State:
@@ -305,12 +305,15 @@ class MidiController_Midi():
         return self.midi_update_rate
 
     def frame_update(self):
-        if self.controllers_to_set_frame_timeout > 0:
-            self.controllers_to_set_frame_timeout -= self.midi_update_rate
+        if self.controllers_to_set_frame_timeout > self.midi_update_rate:
+            self.controllers_to_set_frame_timeout = round(
+                self.controllers_to_set_frame_timeout - self.midi_update_rate, 3)
             self.redraw_ui()
         else:
-            self.controllers_to_set_frame_timeout = 0
             self.controllers_to_set_frame_current_frame = bpy.context.scene.frame_current
+            if (self.controllers_to_set_frame_timeout != 0):
+                self.controllers_to_set_frame_timeout = 0
+                self.redraw_ui()
 
     def redraw_ui(self):
         if self.screens == None:
@@ -400,32 +403,102 @@ class MidiController_Midi():
             print("Failed updating frame somehow...")
             print(e)
 
-    def save_to_blend(self):
+    def save(self, external=False):
         to_save = {
             "controller_names": self.controller_names,
             "controller_mapping": self.controller_property_mapping,
-            "selection_groups": self.controller_selection_mapping,
-            "controller_keyframe_bind": {"controller": self.key_frame_control, "velocity": self.keyframe_insert_button_velocity_pressed}
+            "selection_groups": {
+                "mapping": self.controller_selection_mapping,
+                "velocity": self.select_group_button_velocity_pressed
+            },
+            "controller_keyframe_bind": {
+                "mapping": self.key_frame_control,
+                "velocity": self.keyframe_insert_button_velocity_pressed
+            },
+            "frame_control": self.controllers_to_set_frame
         }
+
         try:
-            setattr(self.context.scene, 'midicontrol_data', json.dumps(to_save))
+            self.loaded_json[self.connected_controller] = to_save
+            if external:
+                return json.dumps(self.loaded_json, indent=4)
+            else:
+                if bpy.data.texts.get("midicontrol") == None:
+                    bpy.data.texts.new("midicontrol")
+                bpy.data.texts["midicontrol"].clear()
+                bpy.data.texts["midicontrol"].write(
+                    json.dumps(self.loaded_json, indent=4))
         except Exception as e:
             print(e)
 
-    def load_from_blend(self):
+    def load(self, external=False, external_json=None):
+        print(f"Loading external: {external}")
         try:
-            if hasattr(self.context.scene, 'midicontrol_data') and self.loaded_from_blend == False:
-                json_object = json.loads(
-                    getattr(self.context.scene, 'midicontrol_data'))
-                self.controller_names = json_object["controller_names"]
-                self.controller_property_mapping = json_object["controller_mapping"]
-                self.controller_selection_mapping = json_object["selection_groups"]
-                self.key_frame_control = json_object[
-                    "controller_keyframe_bind"]["controller"]
-                self.keyframe_insert_button_velocity_pressed = json_object[
-                    "controller_keyframe_bind"]["velocity"]
-                self.loaded_from_blend = True
+            if bpy.data.texts.get("midicontrol") == None and external == False:
+                print("Nothing stored :(")
+                self.save()
+            else:
+                if external:
+                    self.loaded_json = json.load(external_json)
+                    if self.connected_controller not in self.loaded_json:
+                        self.save()
+                    print(f"Loaded: {self.loaded_json}")
+                else:
+                    self.loaded_json = json.loads(
+                        bpy.data.texts.get("midicontrol").as_string())
+                    if self.connected_controller not in self.loaded_json:
+                        self.save()
+                    print(f"Loaded: {self.loaded_json}")
+
+                loaded = self.loaded_json[self.connected_controller]
+                try:
+                    self.controller_names = loaded["controller_names"]
+                except Exception as e:
+                    print(f"Failed reading: controller_names")
+                try:
+                    self.controller_property_mapping = loaded["controller_mapping"]
+                except Exception as e:
+                    print(f"Failed reading: controller_mapping")
+
+                try:
+                    self.controller_selection_mapping = loaded["selection_groups"]["mapping"]
+                except Exception as e:
+                    print(f"Failed reading: selection_groups->mapping")
+                try:
+                    self.select_group_button_velocity_pressed = loaded[
+                        "selection_groups"]["velocity"]
+                except Exception as e:
+                    print(f"Failed reading: selection_groups->velocity")
+                try:
+                    self.select_group_bind_selection_state = self.ControllerButtonBindingState.NONE
+                except Exception as e:
+                    print(f"Failed reading: selection_groups->state")
+
+                try:
+                    self.key_frame_control = loaded["controller_keyframe_bind"]["mapping"]
+                except Exception as e:
+                    print(f"Failed reading: controller_keyframe_bind->mapping")
+                try:
+                    self.keyframe_insert_button_velocity_pressed = loaded[
+                        "controller_keyframe_bind"]["velocity"]
+                except Exception as e:
+                    print(f"Failed reading: controller_keyframe_bind->velocity")
+                try:
+                    self.select_group_bind_selection_state = self.ControllerButtonBindingState.NONE
+                except Exception as e:
+                    print(f"Failed reading: controller_keyframe_bind->state")
+
+                try:
+                    self.controllers_to_set_frame = loaded["frame_control"]
+                except Exception as e:
+                    print(f"Failed reading: frame_control")
+
+                if external:
+                    # Make sure that external overwrites the internal configuration.
+                    self.save(external=False)
+
         except Exception as e:
+            print("failed load ;(")
             print(e)
 
     def select_objects(self, objects):
@@ -442,7 +515,7 @@ class MidiController_Midi():
             if self.key_frame_bind_control_state == self.ControllerButtonBindingState.PENDING:
                 self.key_frame_control = control
                 self.keyframe_insert_button_velocity_pressed = velocity
-                        # self.save_to_blend()
+                # self.save_to_blend()
                 self.key_frame_bind_control_state = self.ControllerButtonBindingState.BOUND
 
             elif self.select_group_bind_selection_state == self.ControllerButtonBindingState.PENDING:
@@ -458,17 +531,16 @@ class MidiController_Midi():
                 self.select_group_bind_selection_state = self.ControllerButtonBindingState.BOUND
 
             elif self.key_frame_bind_control_state == self.ControllerButtonBindingState.BOUND and \
-                velocity == self.keyframe_insert_button_velocity_pressed and \
-                self.key_frame_control == control:
+                    velocity == self.keyframe_insert_button_velocity_pressed and \
+                    self.key_frame_control == control:
                 self.insert_keyframes()
 
-                    # self.save_to_blend()
+                # self.save_to_blend()
             elif self.select_group_bind_selection_state == self.ControllerButtonBindingState.BOUND and \
-                velocity == self.select_group_button_velocity_pressed:
+                    velocity == self.select_group_button_velocity_pressed:
                 if str(control) in self.controller_selection_mapping:
                     self.select_objects(
                         self.controller_selection_mapping[str(control)]["selected_objects"])
-
 
             self.midi_last_control_velocity = velocity
 
@@ -477,18 +549,15 @@ class MidiController_Midi():
             self.midi_last_control_value = value
             self.redraw_ui()
 
-            found = (
-                str(control) in self.controller_property_mapping.keys())
+            found = (str(control) in self.controller_property_mapping.keys())
             if found == False:
                 self.midi_control_to_map = control
             else:
-
                 for mapping in self.controller_property_mapping[str(control)]:
                     min = mapping["min"]
                     max = mapping["max"]
                     new_value = (((max - min) / 127) * value) + min
                     self.update_data(mapping, new_value)
-
                 self.midi_control_to_map = control
 
             if self.controllers_to_set_frame["increase"]["state"] == self.ControllerButtonBindingState.PENDING:
@@ -503,8 +572,8 @@ class MidiController_Midi():
             elif self.controllers_to_set_frame["decrease"]["controller"] == control:
                 self.control_frame("decrease", value)
 
+            self.midi_last_control_value = value
         self.midi_last_control_changed = control
-        self.midi_last_control_value = value
         self.redraw_ui()
 
     def close(self):
