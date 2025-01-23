@@ -88,11 +88,22 @@ class MidiController_Dependencies:
 
         print(f"Python path: {python_path}")
         if '/' in python_path:
-            if 'python' in os.listdir(python_path):
+            version = f"{sys.version_info[0]}.{sys.version_info[1]}"
+            if f'python{version}' in os.listdir(python_path):
+                return os.path.join(python_path, f'python{version}')
+            elif 'python' in os.listdir(python_path):
                 return os.path.join(python_path, 'python')
+            else:
+                raise Exception(
+                    f"Could not find any python executable...")
+
         else:
             if 'python.exe' in os.listdir(python_path):
                 return os.path.join(python_path, 'python.exe')
+            else:
+                raise Exception(
+                    f"Could not find any python executable...")
+
 
         return None
 

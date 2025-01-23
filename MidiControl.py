@@ -10,6 +10,34 @@ import traceback
 import json
 
 
+def set_path_value(full_dp, value):
+    full_dp = full_dp.strip()
+    if full_dp.endswith(']'):
+        i = full_dp.rfind('[')
+        attr0 = full_dp[9: i].strip()  # path_resolve not allow extra space
+        attr1 = full_dp[i:].strip()
+
+        parent = bpy.data.path_resolve(attr0)
+        if ('"' in attr1):
+            parent[attr1[2: -2]] = value
+        else:
+            parent[int(attr1[1: -1])] = value
+    else:
+        i = full_dp.rfind(".")
+        attr0 = full_dp[9: i].strip()
+        attr1 = full_dp[i + 1:].strip()
+
+        parent = bpy.data.path_resolve(attr0)
+        attrtype = str(type(getattr(parent, attr1)))
+        if ('int' in attrtype):
+            value = int(value)
+        if ('float' in attrtype):
+            value = float(value)
+        if ('str' in attrtype):
+            value = str(value)
+        setattr(parent, attr1, value)
+
+
 class MidiController_Midi():
     # to register and control midi
     connected_controller = ""
@@ -19,9 +47,15 @@ class MidiController_Midi():
     midi_open = False
     midi = None
     midi_last_control_changed = 0
+    midi_last_control_mapped = False
     midi_last_control_value = 0
     midi_last_control_velocity = 0
     midi_control_to_map = None
+    midi_control_to_map_is_direct = False
+    midi_control_to_map_direct_path = ""
+
+    # max properties (it will be terribly slow otherwise):
+    max_properties = 1000
 
     # settings
     loaded_json = {}
@@ -59,8 +93,25 @@ class MidiController_Midi():
     properties_to_skip = []
     controller_names = {}
 
+    # default mapping template
+
+    mapping_template = {
+        "direct": False,
+        "path": None,
+        "index": None,
+        "value": None,
+        "name": None,
+        "property": None,
+        "key": False,
+        "data": False,
+        "type": None,
+        "min": 0,
+        "max": 0
+    }
+
     # Controller to edit
     editting_controller = None
+    editting_mapped = None
     edit_state = EditState.NONE
 
     # Controller to register keyframe(s) (note: all properties)
@@ -91,6 +142,19 @@ class MidiController_Midi():
         "timeout": 1,
     }
 
+    controls_to_set_resolution = {
+        "set_fine_resolution": {
+            "state": ControllerButtonBindingState.NONE,
+            "controller": None  # changes from the current frame into future frames
+        },
+        "set_coarse_resolution": {
+            "state": ControllerButtonBindingState.NONE,
+            "controller": None  # changes from the current frame into future frames
+        },
+        "fine_resolution": 1,
+        "coarse_resolution": 1,
+    }
+
     controllers_to_set_frame_current_frame = 0
     controllers_to_set_frame_timeout = 1
 
@@ -104,6 +168,11 @@ class MidiController_Midi():
     accepted_types = ["<class 'int'>", "<class 'float'>",
                       "<class 'list'>", "<class 'Vector'>", "<class 'IDPropertyArray'>"]
 
+    def get_mapping_template(self):
+        return copy.copy(self.mapping_template)
+
+    def get_mapping_pending(self):
+        return copy.copy(self.mapping_pending)
     # class for usage in timer to read midi input
 
     def parse_midi_messages_update(self):
@@ -130,18 +199,6 @@ class MidiController_Midi():
             if bpy.context.screen.is_animation_playing:
                 return self.midi_update_rate
 
-            new_obj_template = {
-                "index": None,
-                "value": None,
-                "name": None,
-                "property": None,
-                "key": False,
-                "data": False,
-                "type": None,
-                "min": 0,
-                "max": 0
-            }
-
             if self.current_mapping_state != self.State.NONE:
                 if len(bpy.context.selected_objects) == 0:
                     return self.midi_update_rate
@@ -160,7 +217,7 @@ class MidiController_Midi():
                 # default props
                 # print("attr in obj:")
                 # print(len(dir(obj)))
-                if len(dir(obj)) < 400:
+                if len(dir(obj)) < self.max_properties:
                     for prop in dir(obj):
                         if str(type(getattr(obj, prop))) in self.accepted_types:
                             if str(type(getattr(obj, prop))) in ["<class 'Vector'>"]:
@@ -171,7 +228,7 @@ class MidiController_Midi():
                                     if f"{prop}_{i}" in self.properties_to_skip:
                                         continue
                                     new_obj = copy.deepcopy(
-                                        new_obj_template)
+                                        self.mapping_template)
                                     new_obj["name"] = f"{prop}_{i}"
                                     new_obj["property"] = prop
                                     new_obj["data"] = False
@@ -189,7 +246,7 @@ class MidiController_Midi():
                                     if f"{prop}_{i}" in self.properties_to_skip:
                                         continue
                                     new_obj = copy.deepcopy(
-                                        new_obj_template)
+                                        self.mapping_template)
                                     new_obj["name"] = f"{prop}_{i}"
                                     new_obj["property"] = prop
                                     new_obj["data"] = False
@@ -202,7 +259,7 @@ class MidiController_Midi():
                             else:
                                 if f"{prop}" in self.properties_to_skip:
                                     continue
-                                new_obj = copy.deepcopy(new_obj_template)
+                                new_obj = copy.deepcopy(self.mapping_template)
                                 new_obj["name"] = f"{prop}"
                                 new_obj["property"] = prop
                                 new_obj["data"] = False
@@ -213,10 +270,10 @@ class MidiController_Midi():
                                     new_obj)
                     self.mapping_error = None
                 else:
-                    self.mapping_error = f"Failed parsing properties, too many!"
+                    self.mapping_error = f"Failed parsing properties, too many! ({len(dir(obj)) } > {self.max_properties})"
 
                 # custom props
-                if len(obj.keys()) > 1 and len(obj.keys()) < 400:
+                if len(obj.keys()) >= 1 and len(obj.keys()) < self.max_properties:
                     # First item is _RNA_UI
                     for K in obj.keys():
                         if K not in '_RNA_UI':
@@ -232,7 +289,7 @@ class MidiController_Midi():
                                         if f"{prop}_{i}" in self.properties_to_skip:
                                             continue
                                         new_obj = copy.deepcopy(
-                                            new_obj_template)
+                                            self.mapping_template)
                                         new_obj["name"] = f"{prop}_{i}"
                                         new_obj["property"] = prop
                                         new_obj["key"] = True
@@ -251,7 +308,7 @@ class MidiController_Midi():
                                         if f"{prop}_{i}" in self.properties_to_skip:
                                             continue
                                         new_obj = copy.deepcopy(
-                                            new_obj_template)
+                                            self.mapping_template)
                                         new_obj["name"] = f"{prop}_{i}"
                                         new_obj["property"] = prop
                                         new_obj["key"] = True
@@ -265,7 +322,7 @@ class MidiController_Midi():
                                     if f"{prop}" in self.properties_to_skip:
                                         continue
                                     new_obj = copy.deepcopy(
-                                        new_obj_template)
+                                        self.mapping_template)
                                     new_obj["name"] = f"{prop}"
                                     new_obj["property"] = prop
                                     new_obj["key"] = True
@@ -276,7 +333,7 @@ class MidiController_Midi():
                                         new_obj)
                     self.mapping_error = None
                 else:
-                    self.mapping_error = f"Failed parsing properties, too many!"
+                    self.mapping_error = f"Failed parsing  custom properties, too many! ({len(obj.keys())} > {self.max_properties})"
 
                 if self.previous_object == self.current_object and is_new == False:
                     for key, value in self.current_object_data.items():
@@ -284,7 +341,6 @@ class MidiController_Midi():
                             if value['value'] != self.previous_object_data[key]['value']:
                                 self.mapping_pending = copy.copy(
                                     value)
-                                self.current_mapping_state = self.State.CONFIGURE_MAPPING
                         else:
                             print(
                                 f"Key: {key} not in previous object, skipping compare.")
@@ -326,34 +382,37 @@ class MidiController_Midi():
             print("Screen error")
 
     def update_data(self, mapping, new_value):
-        for obj in bpy.context.selected_objects:
-            if mapping["key"]:
-                if mapping["property"] not in obj:
-                    continue
-                if mapping["type"] in ["<class 'Vector'>"]:
-                    obj[mapping["property"]][mapping["index"]
-                                             ] = float(new_value)
-                elif mapping["type"] in ["<class 'IDPropertyArray'>"]:
-                    obj[mapping["property"]][mapping["index"]
-                                             ] = float(new_value)
-                elif mapping["type"] in ["<class 'int'>"]:
-                    obj[mapping["property"]] = float(new_value)
-                elif mapping["type"] in ["<class 'float'>"]:
-                    obj[mapping["property"]] = float(new_value)
+        if mapping["direct"]:
+            set_path_value(mapping['path'], new_value)
+        else:
+            for obj in bpy.context.selected_objects:
+                if mapping["key"]:
+                    if mapping["property"] not in obj:
+                        continue
+                    if mapping["type"] in ["<class 'Vector'>"]:
+                        obj[mapping["property"]][mapping["index"]
+                                                 ] = float(new_value)
+                    elif mapping["type"] in ["<class 'IDPropertyArray'>"]:
+                        obj[mapping["property"]][mapping["index"]
+                                                 ] = float(new_value)
+                    elif mapping["type"] in ["<class 'int'>"]:
+                        obj[mapping["property"]] = float(new_value)
+                    elif mapping["type"] in ["<class 'float'>"]:
+                        obj[mapping["property"]] = float(new_value)
 
-            else:
-                if hasattr(obj, mapping["property"]) == False:
-                    continue
-                if mapping["type"] in ["<class 'Vector'>"]:
-                    getattr(obj, mapping["property"])[
-                        mapping["index"]] = float(new_value)
-                elif mapping["type"] in ["<class 'IDPropertyArray'>"]:
-                    getattr(obj, mapping["property"])[
-                        mapping["index"]] = float(new_value)
-                elif mapping["type"] in ["<class 'int'>"]:
-                    setattr(obj, mapping["property"], int(new_value))
-                elif mapping["type"] in ["<class 'float'>"]:
-                    setattr(obj, mapping["property"], float(new_value))
+                else:
+                    if hasattr(obj, mapping["property"]) == False:
+                        continue
+                    if mapping["type"] in ["<class 'Vector'>"]:
+                        getattr(obj, mapping["property"])[
+                            mapping["index"]] = float(new_value)
+                    elif mapping["type"] in ["<class 'IDPropertyArray'>"]:
+                        getattr(obj, mapping["property"])[
+                            mapping["index"]] = float(new_value)
+                    elif mapping["type"] in ["<class 'int'>"]:
+                        setattr(obj, mapping["property"], int(new_value))
+                    elif mapping["type"] in ["<class 'float'>"]:
+                        setattr(obj, mapping["property"], float(new_value))
 
             # This refreshes it... for some reason.
             # see: https://projects.blender.org/blender/blender/issues/74000
@@ -415,7 +474,8 @@ class MidiController_Midi():
                 "mapping": self.key_frame_control,
                 "velocity": self.keyframe_insert_button_velocity_pressed
             },
-            "frame_control": self.controllers_to_set_frame
+            "frame_control": self.controllers_to_set_frame,
+            "resolution_control": self.controls_to_set_resolution
         }
 
         try:
@@ -455,43 +515,66 @@ class MidiController_Midi():
                     self.controller_names = loaded["controller_names"]
                 except Exception as e:
                     print(f"Failed reading: controller_names")
+                    print(e)
                 try:
                     self.controller_property_mapping = loaded["controller_mapping"]
+
+                    for controller, mapping in self.controller_property_mapping.items():
+                        print(mapping)
+                        for map in mapping:
+                            if "direct" not in map:
+                                map["direct"] = False
+                            if "path" not in map:
+                                map["path"] = None
                 except Exception as e:
                     print(f"Failed reading: controller_mapping")
+                    print(e)
 
                 try:
                     self.controller_selection_mapping = loaded["selection_groups"]["mapping"]
                 except Exception as e:
                     print(f"Failed reading: selection_groups->mapping")
+                    print(e)
                 try:
                     self.select_group_button_velocity_pressed = loaded[
                         "selection_groups"]["velocity"]
                 except Exception as e:
                     print(f"Failed reading: selection_groups->velocity")
+                    print(e)
                 try:
                     self.select_group_bind_selection_state = self.ControllerButtonBindingState.NONE
                 except Exception as e:
                     print(f"Failed reading: selection_groups->state")
+                    print(e)
 
                 try:
                     self.key_frame_control = loaded["controller_keyframe_bind"]["mapping"]
                 except Exception as e:
                     print(f"Failed reading: controller_keyframe_bind->mapping")
+                    print(e)
                 try:
                     self.keyframe_insert_button_velocity_pressed = loaded[
                         "controller_keyframe_bind"]["velocity"]
                 except Exception as e:
                     print(f"Failed reading: controller_keyframe_bind->velocity")
+                    print(e)
                 try:
                     self.select_group_bind_selection_state = self.ControllerButtonBindingState.NONE
                 except Exception as e:
                     print(f"Failed reading: controller_keyframe_bind->state")
+                    print(e)
 
                 try:
                     self.controllers_to_set_frame = loaded["frame_control"]
                 except Exception as e:
                     print(f"Failed reading: frame_control")
+                    print(e)
+
+                try:
+                    self.controls_to_set_resolution = loaded["resolution_control"]
+                except Exception as e:
+                    print(f"Failed reading: resolution_control")
+                    print(e)
 
                 if external:
                     # Make sure that external overwrites the internal configuration.
@@ -552,25 +635,62 @@ class MidiController_Midi():
             found = (str(control) in self.controller_property_mapping.keys())
             if found == False:
                 self.midi_control_to_map = control
+                self.midi_last_control_mapped = False
             else:
+                self.midi_last_control_mapped = True
                 for mapping in self.controller_property_mapping[str(control)]:
                     min = mapping["min"]
                     max = mapping["max"]
-                    new_value = (((max - min) / 127) * value) + min
+                    # allows for controlling with more granuality than the max 127 resolution
+
+                    resolution = (self.controls_to_set_resolution["coarse_resolution"]) + (
+                        ((1 / 127) * self.controls_to_set_resolution["fine_resolution"]))
+                    new_value = (
+                        (((max - min) / 127) * resolution) * value) + min
                     self.update_data(mapping, new_value)
                 self.midi_control_to_map = control
 
             if self.controllers_to_set_frame["increase"]["state"] == self.ControllerButtonBindingState.PENDING:
-                self.controllers_to_set_frame["increase"]["controller"] = control
-                self.controllers_to_set_frame["increase"]["state"] = self.ControllerButtonBindingState.BOUND
+                if self.midi_last_control_mapped == False:
+                    self.controllers_to_set_frame["increase"]["controller"] = control
+                    self.controllers_to_set_frame["increase"]["state"] = self.ControllerButtonBindingState.BOUND
+                    self.save()
+                    self.midi_last_control_mapped = True
             elif self.controllers_to_set_frame["increase"]["controller"] == control:
+                self.midi_last_control_mapped = True
                 self.control_frame("increase", value)
 
             if self.controllers_to_set_frame["decrease"]["state"] == self.ControllerButtonBindingState.PENDING:
-                self.controllers_to_set_frame["decrease"]["controller"] = control
-                self.controllers_to_set_frame["decrease"]["state"] = self.ControllerButtonBindingState.BOUND
+                if self.midi_last_control_mapped == False:
+                    self.controllers_to_set_frame["decrease"]["controller"] = control
+                    self.controllers_to_set_frame["decrease"]["state"] = self.ControllerButtonBindingState.BOUND
+                    self.save()
+                    self.midi_last_control_mapped = True
             elif self.controllers_to_set_frame["decrease"]["controller"] == control:
+                self.midi_last_control_mapped = True
                 self.control_frame("decrease", value)
+
+            if self.controls_to_set_resolution["set_fine_resolution"]["state"] == self.ControllerButtonBindingState.PENDING:
+                if self.midi_last_control_mapped == False:
+                    self.controls_to_set_resolution["set_fine_resolution"]["controller"] = control
+                    self.controls_to_set_resolution["set_fine_resolution"][
+                        "state"] = self.ControllerButtonBindingState.BOUND
+                    self.save()
+                    self.midi_last_control_mapped = True
+            elif self.controls_to_set_resolution["set_fine_resolution"]["controller"] == control:
+                self.midi_last_control_mapped = True
+                self.controls_to_set_resolution["fine_resolution"] = value
+
+            if self.controls_to_set_resolution["set_coarse_resolution"]["state"] == self.ControllerButtonBindingState.PENDING:
+                if self.midi_last_control_mapped == False:
+                    self.controls_to_set_resolution["set_coarse_resolution"]["controller"] = control
+                    self.controls_to_set_resolution["set_coarse_resolution"][
+                        "state"] = self.ControllerButtonBindingState.BOUND
+                    self.save()
+                    self.midi_last_control_mapped = True
+            elif self.controls_to_set_resolution["set_coarse_resolution"]["controller"] == control:
+                self.midi_last_control_mapped = True
+                self.controls_to_set_resolution["coarse_resolution"] = value
 
             self.midi_last_control_value = value
         self.midi_last_control_changed = control

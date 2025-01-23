@@ -13,3 +13,4 @@ See releases!
 
 python-rtmidi (comes with the plugin, no manual installation needed!): https://github.com/SpotlightKid/python-rtmidi
 
+pyperclip (comes with the plugin, no manual installation needed!):  https://github.com/asweigart/pyperclip
