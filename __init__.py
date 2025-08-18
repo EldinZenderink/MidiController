@@ -42,7 +42,7 @@ bl_info = {
     "name": "MidiController",
     "author": "Eldin Zenderink",
     "description": "",
-    "blender": (3, 0, 0),
+    "blender": (4, 2, 0),
     "version": (0, 0, 6),
     "location": "",
     "warning": "",

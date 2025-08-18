@@ -1,8 +1,5 @@
 """
 Handles all midi interactions.
-
-Returns:
-    _type_: _description_
 """
 import bpy
 import copy
@@ -10,11 +7,18 @@ import traceback
 import json
 
 
-def set_path_value(full_dp, value):
+def set_path_value(full_dp:str, value):
+    """ Sets a value to a specific data path.
+
+    Args:
+        full_dp (str): Data Path to property.
+        value (float,int,str): Value of property.
+    """
     full_dp = full_dp.strip()
     print(f"Setting: {full_dp}: {value}")
 
-    # This probably does not work if for everything but its a quick hackytyhack for now, to allow brushes to work :)
+    # This probably does not work  for everything but its a quick workaround for now, to allow brushes to work :)
+    # If users report issues with data paths: this will be the first thing to look into :).
     if ", " in full_dp and "]." in full_dp:
         full_dp = full_dp.split(', ')[0][:-1] + "\"]" + full_dp.split(']')[1]
         print(f"Removed the path, new fulldp: {full_dp}")
@@ -103,7 +107,6 @@ class MidiController_Midi():
     controller_names = {}
 
     # default mapping template
-
     mapping_template = {
         "direct": False,
         "path": None,
@@ -167,24 +170,38 @@ class MidiController_Midi():
     controllers_to_set_frame_current_frame = 0
     controllers_to_set_frame_timeout = 1
 
-    # midi update rate
+    # midi update rate (If users experience slowdowns: this should be looked at.)
     midi_update_rate = 0.08
 
+    # Some globals for object data.
     previous_object = None
     current_object = None
     previous_object_data = {}
     current_object_data = {}
+
+    # Types supported by plugin.
     accepted_types = ["<class 'int'>", "<class 'float'>",
                       "<class 'list'>", "<class 'Vector'>", "<class 'IDPropertyArray'>"]
 
     def get_mapping_template(self):
+        """Returns a full copy of the mapping template (prevent reference issues)
+
+        Returns:
+            dict: mapping template
+        """
         return copy.deepcopy(self.mapping_template)
 
     def get_mapping_pending(self):
+        """Returns a full copy of the mapping that is currently pending (prevent reference issues)
+
+        Returns:
+            dict: mapping pending
+        """
         return copy.deepcopy(self.mapping_pending)
-    # class for usage in timer to read midi input
 
     def parse_midi_messages_update(self):
+        """Handle midi messages from midi controller.
+        """
         try:
             if self.midi_input is not None and self.midi_input.is_port_open():
                 last_data = None
@@ -200,17 +217,18 @@ class MidiController_Midi():
             print("Failed reading from midi controller!")
             print(traceback.format_exc())
             print(e)
-        return self.midi_update_rate
 
     def obj_prop_change_update(self):
-        # print("Listening for property changes!")
+        """This function keeps track of any property changes for a selected object in the viewport.
+           It only runs when no animation is playing to prevent slow-down.
+        """
         try:
             if bpy.context.screen.is_animation_playing:
-                return self.midi_update_rate
+                return
 
             if self.current_mapping_state != self.State.NONE:
                 if len(bpy.context.selected_objects) == 0:
-                    return self.midi_update_rate
+                    return
 
                 obj = bpy.context.selected_objects[0]
                 self.current_object = obj.name
@@ -224,8 +242,6 @@ class MidiController_Midi():
                     is_new = True
 
                 # default props
-                # print("attr in obj:")
-                # print(len(dir(obj)))
                 if len(dir(obj)) < self.max_properties:
                     for prop in dir(obj):
                         if str(type(getattr(obj, prop))) in self.accepted_types:
@@ -359,17 +375,16 @@ class MidiController_Midi():
 
                 self.previous_object_data = copy.deepcopy(
                     self.current_object_data)
-
-                return self.midi_update_rate
         except Exception as e:
             self.mapping_error = f"Failed detecting changes."
             print("Failed detecting changes in object!")
             print(traceback.format_exc())
             print(e)
 
-        return self.midi_update_rate
 
     def frame_update(self):
+        """Update the frame counter for frame control using midi input.
+        """
         if self.controllers_to_set_frame_timeout > self.midi_update_rate:
             self.controllers_to_set_frame_timeout = round(
                 self.controllers_to_set_frame_timeout - self.midi_update_rate, 3)
@@ -381,6 +396,8 @@ class MidiController_Midi():
                 self.redraw_ui()
 
     def redraw_ui(self):
+        """To make a property change visible blender has to be triggered to redraw the UI, this also applies the property change on the object.
+        """
         if self.screens == None:
             return
         try:
@@ -391,6 +408,12 @@ class MidiController_Midi():
             print("Screen error")
 
     def update_data(self, mapping, new_value):
+        """Updates a specific property based on the type of the property.
+
+        Args:
+            mapping (dict): the mapped property.
+            new_value (int,float,str): the value to write to the property
+        """
         if mapping["direct"]:
             set_path_value(mapping['path'], new_value)
         else:
@@ -428,6 +451,8 @@ class MidiController_Midi():
             obj.hide_render = obj.hide_render
 
     def insert_keyframes(self):
+        """Allows to insert a key frame for mapped properties on a midi button input.
+        """
         for obj in bpy.context.selected_objects:
             for controller, mapping_array in self.controller_property_mapping.items():
                 for mapping in mapping_array:
@@ -451,6 +476,12 @@ class MidiController_Midi():
                             "Ugly but functional way to skip properties that are not part of the selected object")
 
     def control_frame(self, direction, raw_value):
+        """Allows a midi input to control the frame position.
+
+        Args:
+            direction (str): direction of frame to set
+            raw_value (int): raw frame value.
+        """
         self.controllers_to_set_frame_timeout = self.controllers_to_set_frame["timeout"]
         frames_to_add = int(
             raw_value / self.controllers_to_set_frame["frame_control_resolution"] + 0.5)
@@ -472,6 +503,14 @@ class MidiController_Midi():
             print(e)
 
     def save(self, external=False):
+        """Save the current midi control config. Default is part of the .blend project.
+
+        Args:
+            external (bool, optional): Save to a external json file. Defaults to False.
+
+        Returns:
+            str: The json dump if external is True, otherwise None.
+        """
         to_save = {
             "controller_names": self.controller_names,
             "controller_mapping": self.controller_property_mapping,
@@ -497,10 +536,18 @@ class MidiController_Midi():
                 bpy.data.texts["midicontrol"].clear()
                 bpy.data.texts["midicontrol"].write(
                     json.dumps(self.loaded_json, indent=4))
+                return None
         except Exception as e:
             print(e)
+            return None
 
     def load(self, external=False, external_json=None):
+        """Load midi control config.
+
+        Args:
+            external (bool, optional): Use external_json as input. Defaults to False.
+            external_json (str, optional): External json path. Defaults to None.
+        """
         print(f"Loading external: {external}")
         try:
             if bpy.data.texts.get("midicontrol") == None and external == False:
@@ -594,11 +641,21 @@ class MidiController_Midi():
             print(e)
 
     def select_objects(self, objects):
+        """Select specific objects.
+
+        Args:
+            objects (str): Name of object to select.
+        """
         bpy.ops.object.select_all(action='DESELECT')
         for objname in objects:
             bpy.data.objects[objname].select_set(True)
 
     def midi_callback(self, midi_data):
+        """Callback called when new midi_data is available.
+
+        Args:
+            midi_data (list[][]): first dimension: midi device, second dimension: data
+        """
         velocity = midi_data[0][0]
         control = midi_data[0][1]
         value = midi_data[0][2]
@@ -706,6 +763,8 @@ class MidiController_Midi():
         self.redraw_ui()
 
     def close(self):
+        """Closes properly the device and undoes any configuration that is currently opened.
+        """
         if self.midi_open:
             if self.midi_input.is_port_open():
                 self.midi_input.close_port()
