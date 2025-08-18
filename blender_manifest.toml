@@ -3,9 +3,9 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "midicontroller"
-version = "0.0.7"
-name = "Midicontroller"
-tagline = "Control objects properties through midi!"
+version = "0.1.0"
+name = "MidiController"
+tagline = "Control objects properties through midi"
 maintainer = "Eldin Zenderink"
 # Supported types: "add-on", "theme"
 type = "add-on"
@@ -15,9 +15,9 @@ type = "add-on"
 
 # Optional list defined by Blender and server, see:
 # https://docs.blender.org/manual/en/dev/advanced/extensions/tags.html
-tags = ["Animation"]
+tags = ["Animation", "Object", "Scene", "Paint", "User Interface"]
 
-blender_version_min = "3.0.0"
+blender_version_min = "4.2.0"
 # # Optional: Blender version that the extension does not support, earlier versions are supported.
 # # This can be omitted and defined later on the extensions platform if an issue is found.
 # blender_version_max = "5.1.0"
@@ -25,7 +25,7 @@ blender_version_min = "3.0.0"
 # License conforming to https://spdx.org/licenses/ (use "SPDX: prefix)
 # https://docs.blender.org/manual/en/dev/advanced/extensions/licenses.html
 license = [
-  "SPDX:MIT",
+  "SPDX:GPL-3.0-or-later",
 ]
 # Optional: required by some licenses.
 # copyright = [
