@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "midicontroller"
-version = "0.1.0"
+version = "0.1.2"
 name = "MidiController"
 tagline = "Control objects properties through midi"
 maintainer = "Eldin Zenderink"
@@ -15,7 +15,7 @@ type = "add-on"
 
 # Optional list defined by Blender and server, see:
 # https://docs.blender.org/manual/en/dev/advanced/extensions/tags.html
-tags = ["Animation", "Object", "Scene", "Paint", "User Interface"]
+tags = ["Animation", "Object", "Paint", "User Interface"]
 
 blender_version_min = "4.2.0"
 # # Optional: Blender version that the extension does not support, earlier versions are supported.
