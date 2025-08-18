@@ -646,18 +646,19 @@ class MidiController_Midi():
                 self.midi_control_to_map = control
                 self.midi_last_control_mapped = False
             else:
-                self.midi_last_control_mapped = True
-                for mapping in self.controller_property_mapping[str(control)]:
-                    min = mapping["min"]
-                    max = mapping["max"]
-                    # allows for controlling with more granuality than the max 127 resolution
+                self.midi_last_control_mapped = False
 
-                    resolution = (self.controls_to_set_resolution["coarse_resolution"]) + (
-                        ((1 / 127) * self.controls_to_set_resolution["fine_resolution"]))
-                    new_value = (
-                        (((max - min) / 127) * resolution) * value) + min
-                    self.update_data(mapping, new_value)
-                self.midi_control_to_map = control
+            for mapping in self.controller_property_mapping[str(control)]:
+                min = mapping["min"]
+                max = mapping["max"]
+                # allows for controlling with more granuality than the max 127 resolution
+
+                resolution = (self.controls_to_set_resolution["coarse_resolution"]) + (
+                    ((1 / 127) * self.controls_to_set_resolution["fine_resolution"]))
+                new_value = (
+                    (((max - min) / 127) * resolution) * value) + min
+                self.update_data(mapping, new_value)
+            self.midi_control_to_map = control
 
             if self.controllers_to_set_frame["increase"]["state"] == self.ControllerButtonBindingState.PENDING:
                 if self.midi_last_control_mapped == False:
