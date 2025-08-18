@@ -826,6 +826,10 @@ class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
                     row.label(text=f"Right click on property -> ")
                     row = box.row()
                     row.label(text=f"Copy Direct Path")
+                    row = box.row()
+                    row.label(text=f"Or:")
+                    row = box.row()
+                    row.label(text=f"Copy Full Data Path")
                     copied = pyperclip.paste()
                     if copied.startswith("bpy"):
                         row = box.row()

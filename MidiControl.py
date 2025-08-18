@@ -12,6 +12,13 @@ import json
 
 def set_path_value(full_dp, value):
     full_dp = full_dp.strip()
+    print(f"Setting: {full_dp}: {value}")
+
+    # This probably does not work if for everything but its a quick hackytyhack for now, to allow brushes to work :)
+    if ", " in full_dp and "]." in full_dp:
+        full_dp = full_dp.split(', ')[0][:-1] + "\"]" + full_dp.split(']')[1]
+        print(f"Removed the path, new fulldp: {full_dp}")
+
     if full_dp.endswith(']'):
         i = full_dp.rfind('[')
         attr0 = full_dp[9: i].strip()  # path_resolve not allow extra space
@@ -27,6 +34,7 @@ def set_path_value(full_dp, value):
         attr0 = full_dp[9: i].strip()
         attr1 = full_dp[i + 1:].strip()
 
+
         parent = bpy.data.path_resolve(attr0)
         attrtype = str(type(getattr(parent, attr1)))
         if ('int' in attrtype):
@@ -35,6 +43,7 @@ def set_path_value(full_dp, value):
             value = float(value)
         if ('str' in attrtype):
             value = str(value)
+
         setattr(parent, attr1, value)
 
 
