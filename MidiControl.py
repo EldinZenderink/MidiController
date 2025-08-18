@@ -178,10 +178,10 @@ class MidiController_Midi():
                       "<class 'list'>", "<class 'Vector'>", "<class 'IDPropertyArray'>"]
 
     def get_mapping_template(self):
-        return copy.copy(self.mapping_template)
+        return copy.deepcopy(self.mapping_template)
 
     def get_mapping_pending(self):
-        return copy.copy(self.mapping_pending)
+        return copy.deepcopy(self.mapping_pending)
     # class for usage in timer to read midi input
 
     def parse_midi_messages_update(self):
@@ -245,7 +245,7 @@ class MidiController_Midi():
                                         type(getattr(obj, prop)))
                                     new_obj['index'] = i
                                     new_obj['value'] = v
-                                    self.current_object_data[f"{prop}_{i}"] = copy.copy(
+                                    self.current_object_data[f"{prop}_{i}"] = copy.deepcopy(
                                         new_obj)
                             elif str(type(getattr(obj, prop))) in ["<class 'IDPropertyArray'>"]:
                                 if len(getattr(obj, prop).to_list()) > 6:
@@ -263,7 +263,7 @@ class MidiController_Midi():
                                         type(getattr(obj, prop)))
                                     new_obj['index'] = i
                                     new_obj['value'] = v
-                                    self.current_object_data[f"{prop}_{i}"] = copy.copy(
+                                    self.current_object_data[f"{prop}_{i}"] = copy.deepcopy(
                                         new_obj)
                             else:
                                 if f"{prop}" in self.properties_to_skip:
@@ -275,7 +275,7 @@ class MidiController_Midi():
                                 new_obj["type"] = str(
                                     type(getattr(obj, prop)))
                                 new_obj['value'] = getattr(obj, prop)
-                                self.current_object_data[f"{prop}"] = copy.copy(
+                                self.current_object_data[f"{prop}"] = copy.deepcopy(
                                     new_obj)
                     self.mapping_error = None
                 else:
@@ -306,7 +306,7 @@ class MidiController_Midi():
                                         new_obj['index'] = i
                                         new_obj['value'] = v
                                         new_obj["type"] = str(type(value))
-                                        self.current_object_data[f"prop_{i}"] = copy.copy(
+                                        self.current_object_data[f"prop_{i}"] = copy.deepcopy(
                                             new_obj)
                                 elif str(type(value)) in ["<class 'IDPropertyArray'>"]:
                                     if len(value.to_list()) > 6:
@@ -325,7 +325,7 @@ class MidiController_Midi():
                                         new_obj['index'] = i
                                         new_obj['value'] = v
                                         new_obj["type"] = str(type(value))
-                                        self.current_object_data[f"prop_{i}"] = copy.copy(
+                                        self.current_object_data[f"prop_{i}"] = copy.deepcopy(
                                             new_obj)
                                 else:
                                     if f"{prop}" in self.properties_to_skip:
@@ -338,7 +338,7 @@ class MidiController_Midi():
                                     new_obj["data"] = False
                                     new_obj['value'] = value
                                     new_obj["type"] = str(type(value))
-                                    self.current_object_data[prop] = copy.copy(
+                                    self.current_object_data[prop] = copy.deepcopy(
                                         new_obj)
                     self.mapping_error = None
                 else:
@@ -348,16 +348,16 @@ class MidiController_Midi():
                     for key, value in self.current_object_data.items():
                         if key in self.previous_object_data:
                             if value['value'] != self.previous_object_data[key]['value']:
-                                self.mapping_pending = copy.copy(
+                                self.mapping_pending = copy.deepcopy(
                                     value)
                         else:
                             print(
                                 f"Key: {key} not in previous object, skipping compare.")
 
-                self.previous_object = copy.copy(
+                self.previous_object = copy.deepcopy(
                     self.current_object)
 
-                self.previous_object_data = copy.copy(
+                self.previous_object_data = copy.deepcopy(
                     self.current_object_data)
 
                 return self.midi_update_rate
@@ -642,23 +642,22 @@ class MidiController_Midi():
             self.redraw_ui()
 
             found = (str(control) in self.controller_property_mapping.keys())
+            self.midi_control_to_map = control
             if found == False:
-                self.midi_control_to_map = control
                 self.midi_last_control_mapped = False
             else:
-                self.midi_last_control_mapped = False
+                self.midi_last_control_mapped = True
 
-            for mapping in self.controller_property_mapping[str(control)]:
-                min = mapping["min"]
-                max = mapping["max"]
-                # allows for controlling with more granuality than the max 127 resolution
+                for mapping in self.controller_property_mapping[str(control)]:
+                    min = mapping["min"]
+                    max = mapping["max"]
+                    # allows for controlling with more granuality than the max 127 resolution
 
-                resolution = (self.controls_to_set_resolution["coarse_resolution"]) + (
-                    ((1 / 127) * self.controls_to_set_resolution["fine_resolution"]))
-                new_value = (
-                    (((max - min) / 127) * resolution) * value) + min
-                self.update_data(mapping, new_value)
-            self.midi_control_to_map = control
+                    resolution = (self.controls_to_set_resolution["coarse_resolution"]) + (
+                        ((1 / 127) * self.controls_to_set_resolution["fine_resolution"]))
+                    new_value = (
+                        (((max - min) / 127) * resolution) * value) + min
+                    self.update_data(mapping, new_value)
 
             if self.controllers_to_set_frame["increase"]["state"] == self.ControllerButtonBindingState.PENDING:
                 if self.midi_last_control_mapped == False:

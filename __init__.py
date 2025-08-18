@@ -12,7 +12,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import json
-import copy
+from copy import deepcopy
 import bpy
 import site
 import os
@@ -335,7 +335,7 @@ class MIDICONTROLLER_OP_MapSelectionGroup(bpy.types.Operator):
                 "selected": array,
                 "name": self.name
             }
-            midi_control.selection_to_map = copy.copy(to_map)
+            midi_control.selection_to_map = deepcopy(to_map)
             midi_control.select_group_bind_selection_state = midi_control.ControllerButtonBindingState.PENDING
             update_scene_prop('generic_properties',
                               'selection_group_name', f"", scene.name)
@@ -635,16 +635,11 @@ class MIDICONTROLLER_PT_Panel_ResolutionControls(bpy.types.Panel):
                 row = box.row()
                 row.label(
                     text=f"Map Coarse Control: {midi_control.controls_to_set_resolution['set_coarse_resolution']['controller']}")
-                if midi_control.midi_last_control_mapped == False:
-                    row = box.row()
-                    row.label(text="Change a midi control,")
-                    row = box.row()
-                    row.label(text="to bind to coarse control!")
-                else:
-                    row = box.row()
-                    row.label(text="The current midi control is already,")
-                    row = box.row()
-                    row.label(text="mapped to a property!")
+
+                row = box.row()
+                row.label(text="Change a midi control,")
+                row = box.row()
+                row.label(text="to bind to coarse control!")
 
                 box.alert = False
                 row = box.row()
@@ -667,16 +662,10 @@ class MIDICONTROLLER_PT_Panel_ResolutionControls(bpy.types.Panel):
                 row = box.row()
                 row.label(
                     text=f"Map Coarse Control: {midi_control.controls_to_set_resolution['set_fine_resolution']['controller']}")
-                if midi_control.midi_last_control_mapped == False:
-                    row = box.row()
-                    row.label(text="Change a midi control,")
-                    row = box.row()
-                    row.label(text="to bind to coarse control!")
-                else:
-                    row = box.row()
-                    row.label(text="The current midi control is already,")
-                    row = box.row()
-                    row.label(text="mapped to a property!")
+                row = box.row()
+                row.label(text="Change a midi control,")
+                row = box.row()
+                row.label(text="to bind to coarse control!")
                 box.alert = False
                 row = box.row()
                 op = row.operator(
@@ -804,7 +793,7 @@ class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
             else:
                 if midi_control.current_mapping_state == midi_control.State.NONE:
                     midi_control.current_mapping_state = midi_control.State.REGISTER_CONTROL
-                elif midi_control.current_mapping_state == midi_control.State.REGISTER_CONTROL and midi_control.midi_last_control_mapped == False:
+                elif midi_control.current_mapping_state == midi_control.State.REGISTER_CONTROL:
                     box = layout.box()
                     box.alert = True
                     controller_name = midi_control.midi_control_to_map
@@ -1154,16 +1143,10 @@ class MIDICONTROLLER_PT_Panel_FramePosition(bpy.types.Panel):
                 row.label(
                     text=f"Increase Control: {midi_control.controllers_to_set_frame['increase']['controller']}")
                 row = box.row()
-                if midi_control.midi_last_control_mapped == False:
-                    row = box.row()
-                    row.label(text="Change a midi control,")
-                    row = box.row()
-                    row.label(text="to bind to coarse control!")
-                else:
-                    row = box.row()
-                    row.label(text="The current midi control is already,")
-                    row = box.row()
-                    row.label(text="mapped to a property!")
+                row = box.row()
+                row.label(text="Change a midi control,")
+                row = box.row()
+                row.label(text="to bind to coarse control!")
                 op = row.operator(
                     MIDICONTROLLER_OP_MapFrameSelection.bl_idname, text="Reset")
                 op.action = "reset"
@@ -1198,16 +1181,10 @@ class MIDICONTROLLER_PT_Panel_FramePosition(bpy.types.Panel):
                 row = box.row()
                 row.label(
                     text=f"Decrease Control: {midi_control.controllers_to_set_frame['decrease']['controller']}")
-                if midi_control.midi_last_control_mapped == False:
-                    row = box.row()
-                    row.label(text="Change a midi control,")
-                    row = box.row()
-                    row.label(text="to bind to coarse control!")
-                else:
-                    row = box.row()
-                    row.label(text="The current midi control is already,")
-                    row = box.row()
-                    row.label(text="mapped to a property!")
+                row = box.row()
+                row.label(text="Change a midi control,")
+                row = box.row()
+                row.label(text="to bind to coarse control!")
                 row = box.row()
                 op = row.operator(
                     MIDICONTROLLER_OP_MapFrameSelection.bl_idname, text="Reset")
