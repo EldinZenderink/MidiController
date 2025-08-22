@@ -11,47 +11,58 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import json
-from copy import deepcopy
+
 import bpy
-import site
-import os
-import subprocess
 from bpy.app.handlers import persistent
+from copy import deepcopy
 
-from .Dependencies import *
+# Packages from wheels:
+import copykitten
+import rtmidi
+
 from .MidiControl import *
-
-from .pyperclip import *
-
-try:
-    if bpy.app.version < (4, 2, 0):
-        print("In older versions we install wheels in a local directory relative to the add-on")
-        site.addsitedir(MidiController_Dependencies.get_packages_dir())
-    import rtmidi
-    MidiController_Dependencies.finished_installing_package = False
-    MidiController_Dependencies.required_packages_installed = True
-    print("imported rtmidi")
-except Exception as e:
-    print(e)
-    MidiController_Dependencies.finished_installing_package = False
-    MidiController_Dependencies.required_packages_installed = False
-    print("failed importing midi")
 
 bl_info = {
     "name": "MidiController",
     "author": "Eldin Zenderink",
     "description": "",
     "blender": (4, 2, 0),
-    "version": (0, 0, 6),
+    "version": (0, 1, 3),
     "location": "",
     "warning": "",
-    "category": "Generic"
+    "category": "User Interface"
 }
-
 
 global midicontrol_instance
 midicontrol_instance = MidiController_Midi()
+
+# Global functions
+
+
+def update_scene_prop(prop, name, value, scene_name=None):
+    if scene_name is None:
+        for scene in bpy.data.scenes.keys():
+            try:
+                if prop in bpy.data.scenes[scene]:
+                    if name in bpy.data.scenes[scene][prop]:
+                        bpy.data.scenes[scene][prop][name] = value
+            except Exception as e:
+                print(e)
+    else:
+        bpy.data.scenes[scene_name][prop][name] = value
+
+
+def get_scene_prop_val(prop, name, scene_name=None):
+    if scene_name is None:
+        for scene in bpy.data.scenes.keys():
+            try:
+                if prop in bpy.data.scenes[scene]:
+                    if name in bpy.data.scenes[scene][prop]:
+                        return bpy.data.scenes[scene][prop][name]
+            except Exception as e:
+                print(e)
+    else:
+        return bpy.data.scenes[scene_name][prop][name]
 
 
 class MIDICONTROLLER_GenericProperties(bpy.types.PropertyGroup):
@@ -172,7 +183,6 @@ class MIDICONTROLLER_OP_SavePropertyMapping(bpy.types.Operator):
                               f"Ctrl_{self.controller_name}_{midi_control.mapping_pending['name']}", scene.name)
 
         if self.cancel:
-            midi_control.mapping_pending = None
             midi_control.mapping_pending = None
             midi_control.midi_control_to_map = None
             midi_control.current_mapping_state = midi_control.State.NONE
@@ -516,7 +526,30 @@ class MIDICONTROLLER_OP_Load(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
-# clasS NAMING CONVENTION ‘CATEGORY_PT_name’
+class MIDICONTROLLER_OP_EnableLogInfo(bpy.types.Operator):
+    bl_label = "Enable Info Logging"
+    bl_idname = "wm.enableloginfo_dialog"
+    bl_description = "Enable Log Info."
+
+    def execute(self, context):
+        scene = context.scene
+        midi_control = scene.MidiControl
+        midi_control.enable_info_log()
+        return {'FINISHED'}
+
+
+class MIDICONTROLLER_OP_DisableLogInfo(bpy.types.Operator):
+    bl_label = "Disable Info Logging"
+    bl_idname = "wm.disableloginfo_dialog"
+    bl_description = "Disable Log Info."
+
+    def execute(self, context):
+        scene = context.scene
+        midi_control = scene.MidiControl
+        midi_control.disable_info_log()
+        return {'FINISHED'}
+
+
 class MIDICONTROLLER_PT_Panel_Device(bpy.types.Panel):
 
     # where to add the panel in the UI
@@ -558,7 +591,6 @@ class MIDICONTROLLER_PT_Panel_Device(bpy.types.Panel):
             row.operator(MIDICONTROLLER_OP_FindMidi.bl_idname)
 
 
-# clasS NAMING CONVENTION ‘CATEGORY_PT_name’
 class MIDICONTROLLER_PT_Panel_Status(bpy.types.Panel):
 
     # where to add the panel in the UI
@@ -595,8 +627,6 @@ class MIDICONTROLLER_PT_Panel_Status(bpy.types.Panel):
                 text=f"Last velocity: {midi_control.midi_last_control_velocity}")
         else:
             layout.label(text="Connect Midi Device First!")
-
-# clasS NAMING CONVENTION ‘CATEGORY_PT_name’
 
 
 class MIDICONTROLLER_PT_Panel_ResolutionControls(bpy.types.Panel):
@@ -707,8 +737,6 @@ class MIDICONTROLLER_PT_Panel_ResolutionControls(bpy.types.Panel):
         else:
             layout.label(text="Connect Midi Device First!")
 
-# clasS NAMING CONVENTION ‘CATEGORY_PT_name’
-
 
 class MIDICONTROLLER_PT_Panel_BindKeyFrameInput(bpy.types.Panel):
 
@@ -756,7 +784,6 @@ class MIDICONTROLLER_PT_Panel_BindKeyFrameInput(bpy.types.Panel):
             layout.label(text="Connect Midi Device First!")
 
 
-# clasS NAMING CONVENTION ‘CATEGORY_PT_name’
 class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
 
     # where to add the panel in the UI
@@ -819,7 +846,7 @@ class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
                     row.label(text=f"Or:")
                     row = box.row()
                     row.label(text=f"Copy Full Data Path")
-                    copied = pyperclip.paste()
+                    copied = copykitten.paste()
                     if copied.startswith("bpy"):
                         row = box.row()
                         row.label(text=f"Path to be mapped:")
@@ -835,7 +862,7 @@ class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
                         row.label(text=f"of it being selected!!!")
                         row = box.row()
 
-                        row.label(text=f"- {pyperclip.paste()} -")
+                        row.label(text=f"- {copykitten.paste()} -")
                         row = box.row()
                         op = row.operator(
                             MIDICONTROLLER_OP_SavePropertyMapping.bl_idname, text="Map Path")
@@ -919,7 +946,6 @@ class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
             layout.label(text="Connect Midi Device First!")
 
 
-# clasS NAMING CONVENTION ‘CATEGORY_PT_name’
 class MIDICONTROLLER_PT_Panel_MappedControls(bpy.types.Panel):
 
     # where to add the panel in the UI
@@ -1273,7 +1299,7 @@ class MIDICONTROLLER_PT_Panel_SaveLoad(bpy.types.Panel):
             layout.label(text="Connect Midi Device First!")
 
 
-class MIDICONTROLLER_PT_Panel_InstallRequiredPackages(bpy.types.Panel):
+class MIDICONTROLLER_PT_Panel_Developer(bpy.types.Panel):
 
     # where to add the panel in the UI
     # 3D Viewport area (find list of values here https://docs.blender.org/api/current/bpy_types_enum_items/space_type_items.html#rna-enum-space-type-items)
@@ -1282,196 +1308,16 @@ class MIDICONTROLLER_PT_Panel_InstallRequiredPackages(bpy.types.Panel):
     bl_region_type = "UI"
 
     bl_category = "MidiController"  # found in the Sidebar
-    bl_label = "Install Dependencies"  # found at the top of the Panel
+    bl_label = "Developer"  # found at the top of the Panel
+    bl_description = "Developer and/or troubleshooting options."
 
     def draw(self, context):
         layout = self.layout
-        text = [
-            "Missing python dependency: ",
-            "python-rtmidi",
-            "---",
-            "Please install this package",
-            "By pressing the following button.",
-            "---",
-            "Note: this button starts the",
-            "installation process of the",
-            "wheels package bundled with the",
-            "plugin (part of the zip file),",
-            "it does NOT connect to the",
-            "internet.",
-            "---",
-            "The install of this dependency",
-            "is normally handled by blender,",
-            "however this can silently fail",
-            "due to blender not having permission",
-            "to install the dependency in its",
-            "required location, or due to",
-            "a unknown bug with the install",
-            "procedure.",
-            "---",
-            "It is possible to install the",
-            "plugin correctly, if you start ,",
-            "blender with admin rights. And",
-            "reinstall this plugin (NOT ",
-            "RECOMMENDED!!!).",
-            "If you press the button below",
-            "this plugin will install the ",
-            "dependency in the plugins",
-            "installation directory: ",
-            MidiController_Dependencies.get_plugin_install_dir(),
-            "which does not require admin",
-            "rights.",
-            "---",
-            "To installation process will do",
-            "the following",
-            "1. Create a 'site-packages' directory",
-            "   within this plugins install directory",
-            "2. Select the systems correct wheels package",
-            "   for the dependency delivered with this",
-            "   plugin.",
-            "3. Install the .whl package there and let",
-            "   you save and restart blender so that",
-            "   the plugin can find the dependency",
-            "---",
-            "If you do not trust",
-            "this, please do not continue!",
-            "---",
-            "If you do continue, this is at your",
-            "own risk. I as a developer am not responsible",
-            "for any damages or undesired behavior that",
-            "may follow."
-        ]
-
-        text_finished = [
-            "Finished installing dependencies!",
-            "---",
-            "Reload blender OR press the",
-            "following button to load",
-            "the plugin! You won't see",
-            "this window next time :D."
-        ]
-
-        text_finished_failed = [
-            "Could not finish installing",
-            "plugin, perhaps its a permission",
-            "thing. In that case (not recommended)",
-            "you could start blender as",
-            "administrator.. or wait for",
-            "blender to fix their wheels install",
-            "for plugins (recommended)...",
-        ]
-        if MidiController_Dependencies.required_packages_installed == False:
-            for line in text:
-                row = layout.row()
-                row.ui_units_y -= 7
-                row.label(text=line)
-
-            row = layout.row()
-            row.operator(MIDICONTROLLER_OP_InstallRequiredPackages.bl_idname)
-
-        elif MidiController_Dependencies.finished_installing_package == True and MidiController_Dependencies.required_packages_installed == True:
-            for line in text_finished:
-                row = layout.row()
-                row.ui_units_y -= 7
-                row.label(text=line)
-
-            row = layout.row()
-            row.operator(MIDICONTROLLER_OP_LoadPlugin.bl_idname)
-        elif MidiController_Dependencies.finished_installing_package == True and MidiController_Dependencies.required_packages_installed == False:
-            for line in text_finished_failed:
-                row = layout.row()
-                row.ui_units_y -= 7
-                row.label(text=line)
-
-        row.separator()
-        layout.row()
         box = layout.box()
-        for line in MidiController_Dependencies.progress_printer:
-            row = box.row()
-            row.ui_units_y -= 7
-            row.label(text=line)
-
-
-class MIDICONTROLLER_OP_InstallRequiredPackages(bpy.types.Operator):
-    bl_label = "Install Packages"
-    bl_idname = "wm.install_packages"
-
-    @classmethod
-    def poll(cls, context):
-        return context.object is not None
-
-    def execute(self, context):
-
-        MidiController_Dependencies.progress_printer += [
-            "Selecting wheels package:"]
-        package = MidiController_Dependencies.select_system_package()
-        print(f"Found wheel package to install: {package}")
-        MidiController_Dependencies.progress_printer += [package]
-
-        if package is None:
-            raise Exception(
-                "Could not find correct included wheel package for system configuration!")
-
-        MidiController_Dependencies.progress_printer += [
-            "Finding plugin site-packages!"]
-        site_packages_dir = MidiController_Dependencies.get_packages_dir()
-        MidiController_Dependencies.progress_printer += [
-            "Found:", site_packages_dir]
-
-        MidiController_Dependencies.progress_printer += [
-            "Finding blender's python binary!"]
-        python_path = MidiController_Dependencies.get_python_executable()
-        MidiController_Dependencies.progress_printer += ["Found:", python_path]
-
-        if python_path is not None:
-
-            MidiController_Dependencies.progress_printer += [
-                "Installing wheels into: "]
-            MidiController_Dependencies.progress_printer += [site_packages_dir]
-            result = subprocess.run(
-                [python_path, '-m', 'pip', 'install', '-t', site_packages_dir, package])
-            print(result.returncode)
-
-            MidiController_Dependencies.progress_printer += [
-                f"Return code: {result.returncode}"]
-
-            try:
-                import rtmidi
-                MidiController_Dependencies.progress_printer += [f"Success!"]
-                MidiController_Dependencies.required_packages_installed = True
-                MidiController_Dependencies.finished_installing_package = True
-            except Exception as e:
-                print(e)
-                print("Failed installing :(")
-                MidiController_Dependencies.progress_printer += [
-                    f"Failed installing :("]
-                MidiController_Dependencies.finished_installing_package = True
-        else:
-            raise Exception("Did not find python binary to use!")
-        return {'FINISHED'}
-
-
-class MIDICONTROLLER_OP_LoadPlugin(bpy.types.Operator):
-    bl_label = "Save & Restart Blender"
-    bl_idname = "wm.restart_blender"
-
-    @classmethod
-    def poll(cls, context):
-        return context.object is not None
-
-    def execute(self, context):
-
-        blender_exe = bpy.app.binary_path
-        head, tail = os.path.split(blender_exe)
-        blender_launcher = os.path.join(head, "blender-launcher.exe")
-        try:
-            bpy.ops.wm.save_mainfile()
-        except Exception as e:
-            bpy.ops.wm.save_mainfile('INVOKE_AREA')
-        subprocess.run([blender_launcher, "-con", "--python-expr",
-                       "import bpy; bpy.ops.wm.recover_last_session()"])
-        bpy.ops.wm.quit_blender()
-        return {'FINISHED'}
+        row = box.row()
+        row.operator(MIDICONTROLLER_OP_EnableLogInfo.bl_idname)
+        row = box.row()
+        row.operator(MIDICONTROLLER_OP_DisableLogInfo.bl_idname)
 
 
 classes = (MIDICONTROLLER_GenericProperties,
@@ -1484,6 +1330,7 @@ classes = (MIDICONTROLLER_GenericProperties,
            MIDICONTROLLER_PT_Panel_SelectionGroups,
            MIDICONTROLLER_PT_Panel_FramePosition,
            MIDICONTROLLER_PT_Panel_SaveLoad,
+           MIDICONTROLLER_PT_Panel_Developer,
            MIDICONTROLLER_OP_FindMidi,
            MIDICONTROLLER_OP_ConnectMidi,
            MIDICONTROLLER_OP_DisconnectMidi,
@@ -1495,37 +1342,12 @@ classes = (MIDICONTROLLER_GenericProperties,
            MIDICONTROLLER_OP_MapFrameSelection,
            MIDICONTROLLER_OP_MapResolutionSelection,
            MIDICONTROLLER_OP_Save,
-           MIDICONTROLLER_OP_Load)
+           MIDICONTROLLER_OP_Load,
+           MIDICONTROLLER_OP_EnableLogInfo,
+           MIDICONTROLLER_OP_DisableLogInfo)
 
 
-def update_scene_prop(prop, name, value, scene_name=None):
-    if scene_name is None:
-        for scene in bpy.data.scenes.keys():
-            try:
-                if prop in bpy.data.scenes[scene]:
-                    if name in bpy.data.scenes[scene][prop]:
-                        bpy.data.scenes[scene][prop][name] = value
-            except Exception as e:
-                print(e)
-    else:
-        bpy.data.scenes[scene_name][prop][name] = value
-
-
-def get_scene_prop_val(prop, name, scene_name=None):
-    if scene_name is None:
-        for scene in bpy.data.scenes.keys():
-            try:
-                if prop in bpy.data.scenes[scene]:
-                    if name in bpy.data.scenes[scene][prop]:
-                        return bpy.data.scenes[scene][prop][name]
-            except Exception as e:
-                print(e)
-    else:
-        return bpy.data.scenes[scene_name][prop][name]
-
-
-def updatetimer():
-    # print("update timer called")
+def LogicLoop():
     global midicontrol_instance
     midicontrol_instance.obj_prop_change_update()
     midicontrol_instance.parse_midi_messages_update()
@@ -1537,11 +1359,11 @@ def updatetimer():
 def load_post(dummy):
     print("Finished load")
     try:
-        bpy.app.timers.unregister(updatetimer)
+        bpy.app.timers.unregister(LogicLoop)
     except Exception as e:
         print("Failed to unregister timer")
         print(e)
-    bpy.app.timers.register(updatetimer)
+    bpy.app.timers.register(LogicLoop)
     midicontrol_instance.close()
 
 
@@ -1553,16 +1375,12 @@ def save_pre(dummy):
 
 
 def register():
-    print("registering plugin")
-    if MidiController_Dependencies.required_packages_installed == False:
-        bpy.utils.register_class(
-            MIDICONTROLLER_PT_Panel_InstallRequiredPackages)
-        bpy.utils.register_class(MIDICONTROLLER_OP_InstallRequiredPackages)
-        bpy.utils.register_class(MIDICONTROLLER_OP_LoadPlugin)
-        return
-
+    print("Registering Plugin: MidiController")
     global midicontrol_instance
     midicontrol_instance.context = bpy.context
+
+    midicontrol_instance.start()
+
     bpy.types.Scene.MidiControl = midicontrol_instance
 
     for cls in classes:
@@ -1574,26 +1392,13 @@ def register():
 
     bpy.types.Scene.generic_properties = bpy.props.PointerProperty(
         type=MIDICONTROLLER_GenericProperties)
-    bpy.app.timers.register(updatetimer)
+    bpy.app.timers.register(LogicLoop)
 
     bpy.app.handlers.load_post.append(load_post)
     bpy.app.handlers.save_pre.append(save_pre)
 
 
 def unregister():
-    try:
-        if MidiController_Dependencies.required_packages_installed == False or MidiController_Dependencies.finished_installing_package == True:
-            print("finished installing required packages")
-            bpy.utils.unregister_class(
-                MIDICONTROLLER_PT_Panel_InstallRequiredPackages)
-            bpy.utils.unregister_class(
-                MIDICONTROLLER_OP_InstallRequiredPackages)
-            bpy.utils.unregister_class(MIDICONTROLLER_OP_LoadPlugin)
-            return
-    except Exception as e:
-        print("Failed to unregister dependency installer")
-        print(e)
-
     global midicontrol_instance
 
     try:
@@ -1605,7 +1410,7 @@ def unregister():
         print(e)
 
     try:
-        bpy.app.timers.unregister(updatetimer)
+        bpy.app.timers.unregister(LogicLoop)
     except Exception as e:
         print("Failed to unregister timer")
         print(e)
@@ -1618,8 +1423,3 @@ def unregister():
             print(e)
 
     del bpy.types.Scene.MidiControl
-
-
-# # if __name__ == "__main__":
-# if __name__ == "__main__":
-#     register()

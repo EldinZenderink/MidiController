@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "midicontroller"
-version = "0.1.2"
+version = "0.1.3"
 name = "MidiController"
 tagline = "Control objects properties through midi"
 maintainer = "Eldin Zenderink"
@@ -15,7 +15,7 @@ type = "add-on"
 
 # Optional list defined by Blender and server, see:
 # https://docs.blender.org/manual/en/dev/advanced/extensions/tags.html
-tags = ["Animation", "Object", "Paint", "User Interface"]
+tags = ["User Interface"]
 
 blender_version_min = "4.2.0"
 # # Optional: Blender version that the extension does not support, earlier versions are supported.
@@ -34,7 +34,7 @@ license = [
 # ]
 
 # Optional list of supported platforms. If omitted, the extension will be available in all operating systems.
-# platforms = ["windows-x64", "macos-arm64", "linux-x64"]
+platforms = ["windows-x64", "linux-x64", "macos-arm64", "macos-x64"]
 # Other supported platforms: "windows-arm64", "macos-x64"
 
 # Optional: bundle 3rd party Python modules.
@@ -42,9 +42,12 @@ license = [
 wheels = [
   "./wheels/python_rtmidi-1.5.8-cp311-cp311-win_amd64.whl",
   "./wheels/python_rtmidi-1.5.8-cp311-cp311-manylinux_2_28_x86_64.whl",
-  "./wheels/python_rtmidi-1.5.8-cp311-cp311-manylinux_2_28_aarch64.whl",
   "./wheels/python_rtmidi-1.5.8-cp311-cp311-macosx_11_0_arm64.whl",
-  "./wheels/python_rtmidi-1.5.8-cp311-cp311-macosx_10_9_x86_64.whl"
+  "./wheels/python_rtmidi-1.5.8-cp311-cp311-macosx_10_9_x86_64.whl",
+  "./wheels/copykitten-1.2.2-cp38-abi3-win_amd64.whl",
+  "./wheels/copykitten-1.2.2-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+  "./wheels/copykitten-1.2.2-cp38-abi3-macosx_11_0_arm64.whl",
+  "./wheels/copykitten-1.2.2-cp38-abi3-macosx_10_12_x86_64.whl"
 ]
 
 # Optional: add-ons can list which resources they will require:
@@ -69,8 +72,13 @@ wheels = [
 # Optional: build settings.
 # https://docs.blender.org/manual/en/dev/advanced/extensions/command_line_arguments.html#command-line-args-extension-build
 # [build]
-# paths_exclude_pattern = [
-#   "__pycache__/",
-#   "/.git/",
-#   "/*.zip",
-# ]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.git/",
+  "/*.zip",
+  "*.png",
+  "./logo",
+  "./logo/*.png",
+  ".\\logo",
+  ".\\logo\\*.png"
+]
