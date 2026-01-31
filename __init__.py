@@ -26,7 +26,7 @@ bl_info = {
     "author": "Eldin Zenderink",
     "description": "",
     "blender": (4, 2, 0),
-    "version": (0, 1, 4),
+    "version": (0, 1, 5),
     "location": "",
     "warning": "",
     "category": "User Interface"
@@ -38,7 +38,7 @@ midicontrol_instance = MidiController_Midi()
 # Global functions
 
 
-def update_scene_prop(prop, name, value, scene_name=None):
+def update_scene_prop(prop, name, value, scene_name=0):
     if scene_name is None:
         for scene in bpy.data.scenes.keys():
             try:
@@ -48,10 +48,12 @@ def update_scene_prop(prop, name, value, scene_name=None):
             except Exception as e:
                 print(e)
     else:
-        bpy.data.scenes[scene_name][prop][name] = value
+        if prop in bpy.data.scenes[scene_name]:
+            if name in bpy.data.scenes[scene_name][prop]:
+                bpy.data.scenes[scene_name][prop][name] = value
 
 
-def get_scene_prop_val(prop, name, scene_name=None):
+def get_scene_prop_val(prop, name, scene_name=0):
     if scene_name is None:
         for scene in bpy.data.scenes.keys():
             try:
@@ -61,7 +63,9 @@ def get_scene_prop_val(prop, name, scene_name=None):
             except Exception as e:
                 print(e)
     else:
-        return bpy.data.scenes[scene_name][prop][name]
+        if prop in bpy.data.scenes[scene_name]:
+            if name in bpy.data.scenes[scene_name][prop]:
+                return bpy.data.scenes[scene_name][prop][name]
 
 
 class MIDICONTROLLER_GenericProperties(bpy.types.PropertyGroup):
@@ -95,31 +99,29 @@ class MIDICONTROLLER_OP_FindMidi(bpy.types.Operator):
         if midi_control.running is None:
             midi_control.start()
 
-        midi_control.refresh_available_midi_ports()
-
         # cheeky load, must be a better place to do this right... right?
         update_scene_prop('generic_properties',
-                          'new_prop_min', int(0), scene.name)
+                          'new_prop_min', int(0))
         update_scene_prop('generic_properties',
-                          'new_prop_max', int(1), scene.name)
+                          'new_prop_max', int(1))
         update_scene_prop('generic_properties',
-                          'new_controller_name', "", scene.name)
+                          'new_controller_name', "")
         update_scene_prop('generic_properties',
-                          'edit_prop_min', int(0), scene.name)
+                          'edit_prop_min', int(0))
         update_scene_prop('generic_properties',
-                          'edit_prop_max', int(1), scene.name)
+                          'edit_prop_max', int(1))
         update_scene_prop('generic_properties',
-                          'edit_controller_name', "", scene.name)
+                          'edit_controller_name', "")
         update_scene_prop('generic_properties', 'fine_resolution', int(
-            midi_control.controls_to_set_resolution['fine_resolution']), scene.name)
+            midi_control.controls_to_set_resolution['fine_resolution']))
         update_scene_prop('generic_properties', 'coarse_resolution', int(
-            midi_control.controls_to_set_resolution['coarse_resolution']), scene.name)
+            midi_control.controls_to_set_resolution['coarse_resolution']))
         update_scene_prop('generic_properties', 'frame_control_sensitivity', int(
-            midi_control.controllers_to_set_frame['frame_control_resolution']), scene.name)
+            midi_control.controllers_to_set_frame['frame_control_resolution']))
         update_scene_prop('generic_properties', 'frame_control_update_timeout', int(
-            midi_control.controllers_to_set_frame['timeout']), scene.name)
+            midi_control.controllers_to_set_frame['timeout']))
         update_scene_prop('generic_properties',
-                          'selection_group_name', f"", scene.name)
+                          'selection_group_name', f"")
         return {"FINISHED"}
 
 
@@ -173,18 +175,18 @@ class MIDICONTROLLER_OP_SavePropertyMapping(bpy.types.Operator):
 
         if self.refresh:
             update_scene_prop('generic_properties', 'new_controller_name',
-                              f"Ctrl_{self.controller_name}_{midi_control.mapping_pending['name']}", scene.name)
+                              f"Ctrl_{self.controller_name}_{midi_control.mapping_pending['name']}")
 
         if self.cancel:
             midi_control.mapping_pending = None
             midi_control.midi_control_to_map = None
             midi_control.current_mapping_state = midi_control.State.NONE
             update_scene_prop('generic_properties',
-                              'new_prop_min', int(0), scene.name)
+                              'new_prop_min', int(0))
             update_scene_prop('generic_properties',
-                              'new_prop_max', int(1), scene.name)
+                              'new_prop_max', int(1))
             update_scene_prop('generic_properties',
-                              'new_controller_name', "", scene.name)
+                              'new_controller_name', "")
             return {"FINISHED"}
 
         if midi_control.current_mapping_state == midi_control.State.CONFIGURE_MAPPING:
@@ -206,11 +208,11 @@ class MIDICONTROLLER_OP_SavePropertyMapping(bpy.types.Operator):
             midi_control.midi_control_to_map = None
             midi_control.current_mapping_state = midi_control.State.REGISTER_CONTROL
             update_scene_prop('generic_properties',
-                              'new_prop_min', int(0), scene.name)
+                              'new_prop_min', int(0))
             update_scene_prop('generic_properties',
-                              'new_prop_max', int(1), scene.name)
+                              'new_prop_max', int(1))
             update_scene_prop('generic_properties',
-                              'new_controller_name', "", scene.name)
+                              'new_controller_name', "")
         else:
             if midi_control.current_mapping_state == midi_control.State.REGISTER_CONTROL:
                 if self.direct_mapping:
@@ -255,9 +257,9 @@ class MIDICONTROLLER_OP_UpdatePropertyMapping(bpy.types.Operator):
                 midi_control.EditState.EDIT
             )
             update_scene_prop('generic_properties',
-                              'edit_prop_min', int(min), scene.name)
+                              'edit_prop_min', int(min))
             update_scene_prop('generic_properties',
-                              'edit_prop_max', int(max), scene.name)
+                              'edit_prop_max', int(max))
 
         if self.save:
             midi_control.save_property_mapping(
@@ -310,12 +312,12 @@ class MIDICONTROLLER_OP_MapSelectionGroup(bpy.types.Operator):
         if self.start:
             midi_control.start_selection_group_mapping(self.name)
             update_scene_prop('generic_properties',
-                              'selection_group_name', f"", scene.name)
+                              'selection_group_name', f"")
 
         if self.cancel:
             midi_control.cancel_selection_group_mapping()
             update_scene_prop('generic_properties',
-                              'selection_group_name', f"", scene.name)
+                              'selection_group_name', f"")
         return {"FINISHED"}
 
 
@@ -332,6 +334,8 @@ class MIDICONTROLLER_OP_DeleteSelectionGroup(bpy.types.Operator):
         scene = context.scene
         midi_control = scene.MidiControl
         midi_control.delete_selection_group(self.controller)
+
+        return {"FINISHED"}
 
 
 class MIDICONTROLLER_OP_MapFrameSelection(bpy.types.Operator):
@@ -353,17 +357,17 @@ class MIDICONTROLLER_OP_MapFrameSelection(bpy.types.Operator):
             frame_control_resolution, timeout = midi_control.map_frame_selection_control(
                 self.direction)
             update_scene_prop('generic_properties', 'frame_control_sensitivity',
-                              frame_control_resolution, scene.name)
+                              frame_control_resolution)
             update_scene_prop(
-                'generic_properties', 'frame_control_update_timeout', timeout, scene.name)
+                'generic_properties', 'frame_control_update_timeout', timeout)
 
         elif self.action == "save_settings":
             frame_control_resolution, timeout = midi_control.save_frame_selection_control(
                 self.frame_control_resolution, self.timeout)
             update_scene_prop('generic_properties', 'frame_control_sensitivity',
-                              frame_control_resolution, scene.name)
+                              frame_control_resolution)
             update_scene_prop(
-                'generic_properties', 'frame_control_update_timeout', timeout, scene.name)
+                'generic_properties', 'frame_control_update_timeout', timeout)
         elif self.action == "reset":
             midi_control.reset_frame_selection_control()
 
@@ -386,7 +390,7 @@ class MIDICONTROLLER_OP_MapResolutionSelection(bpy.types.Operator):
             resolution_factor = midi_control.map_resolution_selection(
                 self.type)
             update_scene_prop('generic_properties', 'resolution',
-                              resolution_factor, scene.name)
+                              resolution_factor)
         elif self.action == "reset":
             midi_control.reset_map_resolution_selection()
 
@@ -436,10 +440,9 @@ class MIDICONTROLLER_OP_Load(bpy.types.Operator):
         scene = context.scene
         midi_control = scene.MidiControl
 
-        with open(self.filepath, "r") as openfile:
-            # Reading from json file
-            print(f"Loading: {self.filepath} ")
-            midi_control.load(external=True, external_json=openfile)
+        # Reading from json file
+        print(f"Loading: {self.filepath} ")
+        midi_control.load(external=self.filepath)
         midi_control.save()
         return {'FINISHED'}
 
@@ -808,9 +811,9 @@ class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
                         controller_name = midi_control.controller_names[
                             midi_control.midi_control_to_map]
 
-                    if get_scene_prop_val('generic_properties', 'new_controller_name', scene.name) == "":
+                    if get_scene_prop_val('generic_properties', 'new_controller_name') == "":
                         update_scene_prop('generic_properties', 'new_controller_name',
-                                          f"NewMapping_{len(midi_control.controller_property_mapping.keys())}", scene.name)
+                                          f"NewMapping_{len(midi_control.controller_property_mapping.keys())}")
 
                     row = box.row()
                     row.alert = False
@@ -994,7 +997,7 @@ class MIDICONTROLLER_PT_Panel_SelectionGroups(bpy.types.Panel):
             if midi_control.select_group_bind_selection_state != midi_control.ControllerButtonBindingState.PENDING:
                 if generic_properties.selection_group_name == "":
                     update_scene_prop('generic_properties', 'selection_group_name',
-                                      f"Group ({len(midi_control.controller_selection_mapping.keys())})", scene.name)
+                                      f"Group ({len(midi_control.controller_selection_mapping.keys())})")
 
                 box = layout.box()
                 row = box.row()

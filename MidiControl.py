@@ -46,13 +46,13 @@ def property_changed(*args):
 
         if str(type(v)) in ["<class 'Vector'>", "<class 'Quaternion'>", "<class 'Euler'>"]:
             for i, x in enumerate(v):
-                self.log.info(f"{obj.name}[{k}][{i}] = {x}")
+                self.log.info(f"{obj_name}[{k}][{i}] = {x}")
                 if f'{k}[{i}]' not in self.previous_property_value:
                     self.previous_property_value[f'{k}[{i}]'] = x
 
                 if self.previous_property_value[f'{k}[{i}]'] != x:
                     self.log.info(
-                        f"Previous: {obj.name}[{k}][{i}] = {self.previous_property_value[f'{k}[{i}]']}")
+                        f"Previous: {obj_name}[{k}][{i}] = {self.previous_property_value[f'{k}[{i}]']}")
                     new_obj["name"] = f'{k}[{i}]'
                     new_obj["property"] = k
                     new_obj["data"] = False
@@ -65,12 +65,12 @@ def property_changed(*args):
                     self.log.info("Updated mapping pending")
         elif str(type(v)) in ["<class 'bpy_prop_array'>"]:
             for i, x in enumerate(v.to_list()):
-                self.log.info(f"{obj.name}[{k}][{i}] = {x}")
+                self.log.info(f"{obj_name}[{k}][{i}] = {x}")
                 if f'{k}[{i}]' not in self.previous_property_value:
                     self.previous_property_value[f'{k}[{i}]'] = x
                 if self.previous_property_value[f'{k}[{i}]'] != x:
                     self.log.info(
-                        f"Previous: {obj.name}[{k}][{i}] = { self.previous_property_value[f'{k}[{i}]']}")
+                        f"Previous: {obj_name}[{k}][{i}] = { self.previous_property_value[f'{k}[{i}]']}")
                     new_obj["name"] = f"{k}[{i}]"
                     new_obj["property"] = k
                     new_obj["data"] = False
@@ -82,12 +82,12 @@ def property_changed(*args):
                     self.mapping_pending = copy.copy(new_obj)
         elif str(type(v)) in ["<class 'IDPropertyArray'>"]:
             for i, x in enumerate(v.to_list()):
-                self.log.info(f"{obj.name}[{k}][{i}] = {x}")
+                self.log.info(f"{obj_name}[{k}][{i}] = {x}")
                 if f'{k}[{i}]' not in self.previous_property_value:
                     self.previous_property_value[f'{k}[{i}]'] = x
                 if self.previous_property_value[f'{k}[{i}]'] != x:
                     self.log.info(
-                        f"Previous: {obj.name}[{k}][{i}] = { self.previous_property_value[f'{k}[{i}]']}")
+                        f"Previous: {obj_name}[{k}][{i}] = { self.previous_property_value[f'{k}[{i}]']}")
                     new_obj["name"] = f"{k}[{i}]"
                     new_obj["property"] = k
                     new_obj["data"] = False
@@ -99,13 +99,13 @@ def property_changed(*args):
                     self.mapping_pending = copy.deepcopy(new_obj)
         elif str(type(v)) in ["<class 'float'>", "<class 'int'>"]:
             self.log.info(
-                f"{obj.name}[{k}] = {v} (type: {str(type(v))})")
+                f"{obj_name}[{k}] = {v} (type: {str(type(v))})")
             if f'{k}' not in self.previous_property_value:
                 self.log.info(f"New: = {x}")
                 self.previous_property_value[f'{k}'] = v
             if self.previous_property_value[f'{k}'] != v:
                 self.log.info(
-                    f"Changed from: {obj.name}[{k}] = {self.previous_property_value[f'{k}'] }")
+                    f"Changed from: {obj_name}[{k}] = {self.previous_property_value[f'{k}'] }")
                 new_obj["name"] = f"{k}"
                 new_obj["property"] = k
                 new_obj["data"] = False
@@ -116,7 +116,7 @@ def property_changed(*args):
                 self.mapping_pending = copy.copy(new_obj)
         else:
             self.log.info(
-                f"Unsupported type: {str(type(v))} for property {k} in object: {obj.name}")
+                f"Unsupported type: {str(type(v))} for property {k} in object: {obj_name}")
     except Exception as e:
         self.log.warning(traceback.format_exc())
         self.log.warning(
@@ -341,7 +341,6 @@ class MidiController_Midi():
     def refresh_available_midi_ports(self):
         self.log.info(f"Refreshing available midi ports")
         self.available_ports = rtmidi.MidiIn().get_ports()
-        self.redraw_ui()
 
     def open_midi(self, port,):
         # Connect to the midi port (callback method)
@@ -671,9 +670,13 @@ class MidiController_Midi():
 
         # Prevent duplicate group names!
         matches = 0
-        for control, selection_mapping in self.controller_selection_mapping:
-            if selection_mapping["name"] == name:
-                matches += 1
+        try:
+            for control, selection_mapping in self.controller_selection_mapping.items():
+                if selection_mapping["name"] == name:
+                    matches += 1
+        except Exception as e:
+            print(e)
+            print(self.controller_selection_mapping)
 
         if matches > 0:
             name = f"name_{matches}"
@@ -860,7 +863,6 @@ class MidiController_Midi():
                     int(self.controllers_to_set_frame_current_frame + 0.5))
             else:
                 bpy.context.scene.frame_set(0)
-            self.redraw_ui()
 
         # except Exception as e:
         #     self.log.info("Failed updating frame somehow...")
@@ -1110,6 +1112,7 @@ class MidiController_Midi():
                             self.controller_selection_mapping[str(control)]["selected_objects"])
 
                 self.midi_last_control_velocity = velocity
+                self.redraw_ui()
 
             if value != self.midi_last_control_value:
                 self.midi_last_control_changed = control
@@ -1185,9 +1188,8 @@ class MidiController_Midi():
                     self.midi_last_control_mapped = True
                     self.controls_to_set_resolution["coarse_resolution"] = value
                 self.midi_last_control_value = value
+                self.redraw_ui()
             self.midi_last_control_changed = control
-
-            self.redraw_ui()
         except Exception as e:
             self.log.error(traceback.format_exc())
             self.log.error(f"Failed to handle midi input!")
