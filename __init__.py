@@ -16,9 +16,6 @@ import bpy
 from bpy.app.handlers import persistent
 from copy import deepcopy
 
-# Packages from wheels:
-import copykitten
-
 from .MidiControl import *
 
 bl_info = {
@@ -84,7 +81,6 @@ class MIDICONTROLLER_GenericProperties(bpy.types.PropertyGroup):
         name="edit_controller_name", default="")
     selection_group_name: bpy.props.StringProperty(
         name="selection_group_name", default="")
-
 
 class MIDICONTROLLER_OP_FindMidi(bpy.types.Operator):
     bl_idname = "wm.find_midi"
@@ -280,6 +276,7 @@ class MIDICONTROLLER_OP_UpdateKeyFrameMapping(bpy.types.Operator):
     bl_description = "Click to map a midi control which allows for inserting keyframes for all mapped properties for the selected objects."
 
     start: bpy.props.BoolProperty(default=False)
+    save: bpy.props.BoolProperty(default=False)
     reset: bpy.props.BoolProperty(default=False)
 
     def execute(self, context):
@@ -288,6 +285,8 @@ class MIDICONTROLLER_OP_UpdateKeyFrameMapping(bpy.types.Operator):
 
         if self.start:
             midi_control.start_update_key_frame_mapping()
+        elif self.save:
+            midi_control.save_update_key_frame_mapping()
         elif self.reset:
             midi_control.reset_key_frame_mapping()
 
@@ -302,6 +301,7 @@ class MIDICONTROLLER_OP_MapSelectionGroup(bpy.types.Operator):
     name: bpy.props.StringProperty(default="")
     start: bpy.props.BoolProperty(default=False)
     cancel: bpy.props.BoolProperty(default=False)
+    save: bpy.props.BoolProperty(default=False)
 
     def execute(self, context):
 
@@ -314,7 +314,12 @@ class MIDICONTROLLER_OP_MapSelectionGroup(bpy.types.Operator):
             update_scene_prop('generic_properties',
                               'selection_group_name', f"")
 
-        if self.cancel:
+        elif self.save:
+            midi_control.save_selection_group_mapping()
+            update_scene_prop('generic_properties',
+                              'selection_group_name', f"")
+
+        elif self.cancel:
             midi_control.cancel_selection_group_mapping()
             update_scene_prop('generic_properties',
                               'selection_group_name', f"")
@@ -362,7 +367,7 @@ class MIDICONTROLLER_OP_MapFrameSelection(bpy.types.Operator):
                 'generic_properties', 'frame_control_update_timeout', timeout)
 
         elif self.action == "save_settings":
-            frame_control_resolution, timeout = midi_control.save_frame_selection_control(
+            frame_control_resolution, timeout = midi_control.update_frame_selection_control(
                 self.frame_control_resolution, self.timeout)
             update_scene_prop('generic_properties', 'frame_control_sensitivity',
                               frame_control_resolution)
@@ -682,26 +687,65 @@ class MIDICONTROLLER_PT_Panel_BindKeyFrameInput(bpy.types.Panel):
             layout.label(text="Bind A Control To Insert Keyframes")
             box = layout.box()
             row = box.row()
-            row.label(
-                text=f"Bound To: {midi_control.key_frame_control}")
-            row = box.row()
-            if midi_control.key_frame_control is None:
-                box.alert = True
+            if midi_control.key_frame_bind_control_state ==  midi_control.ControllerButtonBindingState.NONE:
+                box.alert = False
+                row = box.row()
+                row.label(
+                    text=f"No Control Bound")
                 op = row.operator(
-                    MIDICONTROLLER_OP_UpdateKeyFrameMapping.bl_idname, text="Start Binding")
+                    MIDICONTROLLER_OP_UpdateKeyFrameMapping.bl_idname, text="Start")
                 op.reset = False
+                op.save = False
                 op.start = True
 
-                if midi_control.key_frame_bind_control_state == midi_control.ControllerButtonBindingState.PENDING:
-                    row = box.row()
-                    row.label(text="Press a button to bind!")
+            elif midi_control.key_frame_bind_control_state == midi_control.ControllerButtonBindingState.PENDING:
+                box.alert = True
+                row = box.row()
+                row.label(
+                    text=f"In case of button:")
+                row = box.row()
+                row.label(
+                    text=f"Press and HOLD then save!")
+                row = box.row()
+                row.label(
+                    text=f"In case of slider!")
+                row = box.row()
+                row.label(
+                    text=f"Move slider to trigger position!")
+                row = box.row()
+                row.label(
+                    text=f"Current control: {midi_control.midi_last_control_changed}")
+                row = box.row()
+                row.label(
+                    text=f"Current value: {midi_control.midi_last_control_value}")
+                row = box.row()
+                row.label(
+                    text=f"Current velocity: {midi_control.midi_last_control_velocity}")
+                row = box.row()
+                op = row.operator(
+                    MIDICONTROLLER_OP_UpdateKeyFrameMapping.bl_idname, text="Save")
+                op.reset = False
+                op.start = False
+                op.save = True
 
             else:
                 box.alert = False
+                row = box.row()
+                row.label(
+                    text=f"Bound To: {midi_control.key_frame_control}")
+                row = box.row()
+                if midi_control.keyframe_insert_button_value_pressed > 0:
+                    row.label(
+                        text=f"Value To Trigger: {midi_control.keyframe_insert_button_value_pressed}")
+                if midi_control.keyframe_insert_button_velocity_pressed > 0:
+                    row.label(
+                        text=f"Velocity To Trigger: {midi_control.keyframe_insert_button_velocity_pressed}")
+                row = box.row()
                 op = row.operator(
-                    MIDICONTROLLER_OP_UpdateKeyFrameMapping.bl_idname, text="Reset Bind")
-                op.reset = True
+                    MIDICONTROLLER_OP_UpdateKeyFrameMapping.bl_idname, text="Reset")
                 op.start = False
+                op.save = False
+                op.reset = True
         else:
             layout.label(text="Connect Midi Device First!")
 
@@ -720,6 +764,7 @@ class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
 
     def draw(self, context):
 
+        clipboard = bpy.context.window_manager.clipboard
         scene = context.scene
         generic_properties = scene.generic_properties
         midi_control = scene.MidiControl
@@ -768,7 +813,7 @@ class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
                     row.label(text=f"Or:")
                     row = box.row()
                     row.label(text=f"Copy Full Data Path")
-                    copied = copykitten.paste()
+                    copied = clipboard
                     if copied.startswith("bpy"):
                         row = box.row()
                         row.label(text=f"Path to be mapped:")
@@ -783,8 +828,7 @@ class MIDICONTROLLER_PT_Panel_RegisterControllerMapping(bpy.types.Panel):
                         row.alert = True
                         row.label(text=f"of it being selected!!!")
                         row = box.row()
-
-                        row.label(text=f"- {copykitten.paste()} -")
+                        row.label(text=f"- {clipboard} -")
                         row = box.row()
                         op = row.operator(
                             MIDICONTROLLER_OP_SavePropertyMapping.bl_idname, text="Map Path")
@@ -1014,17 +1058,42 @@ class MIDICONTROLLER_PT_Panel_SelectionGroups(bpy.types.Panel):
                     MIDICONTROLLER_OP_MapSelectionGroup.bl_idname)
                 op.name = generic_properties.selection_group_name
                 op.start = True
+                op.save = False
                 op.cancel = False
             elif midi_control.select_group_bind_selection_state == midi_control.ControllerButtonBindingState.PENDING:
                 box = layout.box()
                 box.alert = True
                 row = box.row()
                 row.label(
-                    text=f"Press button to map: {midi_control.selection_to_map['name']}!")
+                    text=f"In case of button:")
+                row = box.row()
+                row.label(
+                    text=f"Press and HOLD then save!")
+                row = box.row()
+                row.label(
+                    text=f"In case of slider!")
+                row = box.row()
+                row.label(
+                    text=f"Move slider to trigger position!")
+                row = box.row()
+                row.label(
+                    text=f"Current control: {midi_control.midi_last_control_changed}")
+                row = box.row()
+                row.label(
+                    text=f"Current value: {midi_control.midi_last_control_value}")
+                row = box.row()
+                row.label(
+                    text=f"Current velocity: {midi_control.midi_last_control_velocity}")
                 row = box.row()
                 op = row.operator(
                     MIDICONTROLLER_OP_MapSelectionGroup.bl_idname, text=f"Cancel")
                 op.cancel = True
+                op.start = False
+                op.save = False
+                op = row.operator(
+                    MIDICONTROLLER_OP_MapSelectionGroup.bl_idname, text=f"Save")
+                op.save = True
+                op.cancel = False
                 op.start = False
 
             row = layout.row()
@@ -1033,10 +1102,20 @@ class MIDICONTROLLER_PT_Panel_SelectionGroups(bpy.types.Panel):
             row.separator()
 
             for controller, mapped in midi_control.controller_selection_mapping.items():
+                if "saved" in mapped and mapped["saved"] == False:
+                    continue
                 row = layout.row()
                 nbox = row.box()
                 nbox.label(
-                    text=f"Group: {mapped['name']}, Mapped To: {controller}")
+                    text=f"Group: {mapped['name']}")
+                row = nbox.row()
+                nbox.label(
+                    text=f"Mapped To: {controller}")
+                row = nbox.row()
+                if mapped["button_pressed_value"] > 0:
+                    nbox.label(text=f"Button Value Trigger: {mapped['button_pressed_value']}")
+                if mapped["button_pressed_velocity"] > 0:
+                    nbox.label(text=f"Button Velocity Trigger: {mapped['button_pressed_velocity']}")
                 row = nbox.row()
                 op = row.operator(
                     MIDICONTROLLER_OP_DeleteSelectionGroup.bl_idname, text=f"Delete")
@@ -1234,11 +1313,11 @@ class MIDICONTROLLER_PT_Panel_Developer(bpy.types.Panel):
 classes = (MIDICONTROLLER_GenericProperties,
            MIDICONTROLLER_PT_Panel_Device,
            MIDICONTROLLER_PT_Panel_Status,
-           MIDICONTROLLER_PT_Panel_ResolutionControls,
-           MIDICONTROLLER_PT_Panel_BindKeyFrameInput,
            MIDICONTROLLER_PT_Panel_RegisterControllerMapping,
            MIDICONTROLLER_PT_Panel_MappedControls,
            MIDICONTROLLER_PT_Panel_SelectionGroups,
+           MIDICONTROLLER_PT_Panel_ResolutionControls,
+           MIDICONTROLLER_PT_Panel_BindKeyFrameInput,
            MIDICONTROLLER_PT_Panel_FramePosition,
            MIDICONTROLLER_PT_Panel_SaveLoad,
            MIDICONTROLLER_PT_Panel_Developer,

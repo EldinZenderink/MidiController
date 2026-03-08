@@ -214,13 +214,15 @@ class MidiController_Midi():
     # Controller to register keyframe(s) (note: all properties)
     key_frame_control = None
     key_frame_bind_control_state = ControllerButtonBindingState.NONE
+    keyframe_insert_button_pressed = False
     keyframe_insert_button_velocity_pressed = 0
+    keyframe_insert_button_value_pressed = 0
 
     # Selection group buttons bound
     selection_to_map = None
     select_group_bind_selection_state = ControllerButtonBindingState.NONE
     controller_selection_mapping = {}
-    select_group_button_velocity_pressed = 0
+    select_group_button_pressed = False
 
     # Frame position update
     controllers_to_set_frame = {
@@ -655,6 +657,11 @@ class MidiController_Midi():
     def start_update_key_frame_mapping(self):
         self.key_frame_bind_control_state = self.ControllerButtonBindingState.PENDING
 
+    def save_update_key_frame_mapping(self):
+        if self.key_frame_bind_control_state == self.ControllerButtonBindingState.PENDING:
+            self.key_frame_bind_control_state = self.ControllerButtonBindingState.BOUND
+        self.save()  # ensure current state is saved.
+
     def reset_key_frame_mapping(self):
         self.key_frame_bind_control_state = self.ControllerButtonBindingState.NONE
         self.key_frame_control = None
@@ -689,6 +696,16 @@ class MidiController_Midi():
         self.selection_to_map = copy.deepcopy(to_map)
         self.select_group_bind_selection_state = self.ControllerButtonBindingState.PENDING
 
+    def save_selection_group_mapping(self):
+        if self.select_group_bind_selection_state == self.ControllerButtonBindingState.PENDING:
+            self.select_group_bind_selection_state = self.ControllerButtonBindingState.BOUND
+
+            for control, selection_group in self.controller_selection_mapping.items():
+                if selection_group["name"] == self.selection_to_map["name"]:
+                    self.controller_selection_mapping[control]["saved"] = True
+
+            self.save()
+
     def cancel_selection_group_mapping(self):
         self.selection_to_map = None
         self.select_group_bind_selection_state = self.ControllerButtonBindingState.NONE
@@ -713,7 +730,13 @@ class MidiController_Midi():
                 'state'] = self.ControllerButtonBindingState.NONE
         return int(self.controllers_to_set_frame['frame_control_resolution']), int(self.controllers_to_set_frame['timeout'])
 
-    def save_frame_selection_control(self, frame_control_resolution, timeout):
+    def save_frame_selection_control(self, direction):
+        if self.controllers_to_set_frame[direction]['state'] == self.ControllerButtonBindingState.PENDING:
+            self.controllers_to_set_frame[direction][
+                'state'] = self.ControllerButtonBindingState.BOUND
+            self.save()
+
+    def update_frame_selection_control(self, frame_control_resolution, timeout):
         self.log.info(f"Saved frame selection control")
         self.controllers_to_set_frame["frame_control_resolution"] = frame_control_resolution
         self.controllers_to_set_frame["timeout"] = timeout
@@ -833,6 +856,19 @@ class MidiController_Midi():
                                     f'["{mapping["property"]}"]')
                             else:
                                 obj.keyframe_insert(mapping['property'])
+                        elif mapping["type"] == "DIRECTPATH":
+                            property_split = mapping["path"].split('.')[-1]
+                            property_index = None
+
+                            if '[' in property_split:
+                                property_index = int(
+                                    property_split.split('[')[1].split(']')[0])
+                                property_split = property_split.split('[')[0]
+                                obj.keyframe_insert(property_split, index=property_index, frame=int(
+                                    bpy.context.scene.frame_current))
+                            else:
+                                obj.keyframe_insert(property_split, frame=int(
+                                    bpy.context.scene.frame_current))
                     except Exception as e:
                         self.log.info(e)
                         self.log.info(
@@ -882,13 +918,13 @@ class MidiController_Midi():
             "controller_names": self.controller_names,
             "controller_mapping": self.controller_property_mapping,
             "selection_groups": {
-                "mapping": self.controller_selection_mapping,
-                "velocity": self.select_group_button_velocity_pressed
+                "mapping": self.controller_selection_mapping
             },
             "select_group_bind_selection_state": self.select_group_bind_selection_state,
             "controller_keyframe_bind": {
                 "mapping": self.key_frame_control,
-                "velocity": self.keyframe_insert_button_velocity_pressed
+                "button_pressed_velocity": self.keyframe_insert_button_velocity_pressed,
+                "button_pressed_value": self.keyframe_insert_button_value_pressed
             },
             "key_frame_bind_control_state": self.key_frame_bind_control_state,
             "frame_control": self.controllers_to_set_frame,
@@ -977,15 +1013,6 @@ class MidiController_Midi():
                     self.log.error(traceback.format_exc())
 
                 try:
-                    self.select_group_button_velocity_pressed = loaded[
-                        "selection_groups"]["velocity"]
-                except Exception as e:
-                    self.log.error(
-                        f"Failed Reading Config: selection_groups->velocity")
-                    self.log.error(e)
-                    self.log.error(traceback.format_exc())
-
-                try:
                     self.select_group_bind_selection_state = loaded["select_group_bind_selection_state"]
                 except Exception as e:
                     self.select_group_button_velocity_pressed = 0
@@ -1005,10 +1032,19 @@ class MidiController_Midi():
 
                 try:
                     self.keyframe_insert_button_velocity_pressed = loaded[
-                        "controller_keyframe_bind"]["velocity"]
+                        "controller_keyframe_bind"]["button_pressed_velocity"]
                 except Exception as e:
                     self.log.error(
-                        f"Failed Reading Config: controller_keyframe_bind->velocity")
+                        f"Failed Reading Config: controller_keyframe_bind->button_pressed_velocity")
+                    self.log.error(e)
+                    self.log.error(traceback.format_exc())
+
+                try:
+                    self.keyframe_insert_button_value_pressed = loaded[
+                        "controller_keyframe_bind"]["button_pressed_value"]
+                except Exception as e:
+                    self.log.error(
+                        f"Failed Reading Config: controller_keyframe_bind->button_pressed_value")
                     self.log.error(e)
                     self.log.error(traceback.format_exc())
 
@@ -1077,39 +1113,41 @@ class MidiController_Midi():
             value = midi_data[2]
 
             if velocity != self.midi_last_control_velocity:
+
                 if self.key_frame_bind_control_state == self.ControllerButtonBindingState.PENDING:
                     self.key_frame_control = control
                     self.keyframe_insert_button_velocity_pressed = velocity
-                    # self.save_to_blend()
-                    self.key_frame_bind_control_state = self.ControllerButtonBindingState.BOUND
-                    # ensure the bound key to frame control are saved.
-                    self.save()
+                    self.keyframe_insert_button_value_pressed = 0
+                elif self.key_frame_bind_control_state == self.ControllerButtonBindingState.BOUND and \
+                        self.key_frame_control == control:
+                    if velocity >= self.keyframe_insert_button_velocity_pressed and \
+                            self.keyframe_insert_button_pressed == False:
+                        self.insert_keyframes()
+                        self.keyframe_insert_button_pressed = True
+                    elif velocity < self.keyframe_insert_button_velocity_pressed and self.keyframe_insert_button_pressed == True:
+                        self.keyframe_insert_button_pressed = False
 
-                elif self.select_group_bind_selection_state == self.ControllerButtonBindingState.PENDING:
+                if self.select_group_bind_selection_state == self.ControllerButtonBindingState.PENDING and self.selection_to_map is not None:
                     new_selection_mapping = {
                         "name": self.selection_to_map["name"],
                         "selected_objects": self.selection_to_map["selected"],
-                        "velocity": velocity
+                        "button_pressed_velocity": velocity,
+                        "button_pressed_value": 0,
+                        "pressed": False,
+                        "saved": False
                     }
                     self.controller_selection_mapping[str(
                         control)] = new_selection_mapping
                     self.select_group_button_velocity_pressed = velocity
-
-                    self.select_group_bind_selection_state = self.ControllerButtonBindingState.BOUND
-                    # ensure the selection group mapping are saved.
-                    self.save()
-
-                elif self.key_frame_bind_control_state == self.ControllerButtonBindingState.BOUND and \
-                        velocity == self.keyframe_insert_button_velocity_pressed and \
-                        self.key_frame_control == control:
-                    self.insert_keyframes()
-
-                    # self.save_to_blend()
-                elif self.select_group_bind_selection_state == self.ControllerButtonBindingState.BOUND and \
-                        velocity == self.select_group_button_velocity_pressed:
-                    if str(control) in self.controller_selection_mapping:
+                elif str(control) in self.controller_selection_mapping and self.select_group_bind_selection_state == self.ControllerButtonBindingState.BOUND:
+                    if velocity >= self.controller_selection_mapping[str(control)]["button_pressed_velocity"] and self.controller_selection_mapping[str(control)]["pressed"] == False:
                         self.select_objects(
                             self.controller_selection_mapping[str(control)]["selected_objects"])
+                        self.controller_selection_mapping[str(
+                            control)]["pressed"] = True
+                    elif velocity < self.controller_selection_mapping[str(control)]["button_pressed_velocity"] and self.controller_selection_mapping[str(control)]["pressed"] == True:
+                        self.controller_selection_mapping[str(
+                            control)]["pressed"] = False
 
                 self.midi_last_control_velocity = velocity
                 self.redraw_ui()
@@ -1117,6 +1155,38 @@ class MidiController_Midi():
             if value != self.midi_last_control_value:
                 self.midi_last_control_changed = control
                 self.midi_last_control_value = value
+                if self.key_frame_control == control and self.key_frame_bind_control_state == self.ControllerButtonBindingState.BOUND:
+                    if value >= self.keyframe_insert_button_value_pressed and self.keyframe_insert_button_pressed == False:
+                        self.insert_keyframes()
+                        self.keyframe_insert_button_pressed = True
+                    elif value < self.keyframe_insert_button_value_pressed and self.keyframe_insert_button_pressed == True:
+                        self.keyframe_insert_button_pressed = False
+                elif self.key_frame_bind_control_state == self.ControllerButtonBindingState.PENDING:
+                    self.key_frame_control = control
+                    self.keyframe_insert_button_value_pressed = value
+                    self.keyframe_insert_button_pressed = False
+                    self.keyframe_insert_button_velocity_pressed = 0
+
+                if self.select_group_bind_selection_state == self.ControllerButtonBindingState.PENDING and self.selection_to_map is not None:
+                    new_selection_mapping = {
+                        "name": self.selection_to_map["name"],
+                        "selected_objects": self.selection_to_map["selected"],
+                        "button_pressed_velocity": 0,
+                        "button_pressed_value": value,
+                        "pressed": False,
+                        "saved": False
+                    }
+                    self.controller_selection_mapping[str(
+                        control)] = new_selection_mapping
+                elif self.select_group_bind_selection_state != self.ControllerButtonBindingState.PENDING and str(control) in self.controller_selection_mapping:
+                    if value >= self.controller_selection_mapping[str(control)]["button_pressed_value"] and self.controller_selection_mapping[str(control)]["pressed"] == False:
+                        self.select_objects(
+                            self.controller_selection_mapping[str(control)]["selected_objects"])
+                        self.controller_selection_mapping[str(
+                            control)]["pressed"] = True
+                    elif value < self.controller_selection_mapping[str(control)]["button_pressed_value"] and self.controller_selection_mapping[str(control)]["pressed"] == True:
+                        self.controller_selection_mapping[str(
+                            control)]["pressed"] = False
 
                 found = (str(control) in self.controller_property_mapping.keys())
 
