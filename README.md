@@ -62,3 +62,8 @@ Bind a MIDI button to insert a keyframe for **all mapped properties** of the cur
 ### 5. Frame Control
 
 Use a MIDI control to navigate the timeline by adjusting the current frame position.
+
+
+## Dependencies
+
+The current midi python module used for this plugin is: [rtmidi2](https://github.com/gesellkammer/rtmidi2)

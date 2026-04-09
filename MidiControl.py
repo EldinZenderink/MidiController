@@ -6,9 +6,9 @@ import copy
 import traceback
 import json
 import logging
-import rtmidi
-from rtmidi.midiutil import open_midiinput
 import time
+import rtmidi2
+from rtmidi2 import get_in_ports
 
 
 def midicontroller_obj_selected_callback(self, *args):
@@ -122,18 +122,6 @@ def property_changed(*args):
         self.log.warning(
             f"Failed to check changes for property: {k} for object: {obj_name}")
         self.log.warning(e)
-
-
-class MidiController_InputHandler():
-    def __init__(self, midicontroller_instance, port):
-        self.port = port
-        self.midicontroller_instance = midicontroller_instance
-        self._wallclock = time.time()
-
-    def __call__(self, event, data=None):
-        message, deltatime = event
-        self._wallclock += deltatime
-        self.midicontroller_instance.parse_midi_messages_update(message)
 
 
 class MidiController_Midi():
@@ -308,7 +296,7 @@ class MidiController_Midi():
         self.midi_last_message = round(time.time() * 1000)
         self.propchange_last_time = round(time.time() * 1000)
         # setup midi
-        self.midi_input = rtmidi.MidiIn()
+        self.midi_input = rtmidi2.MidiIn()
 
         # set current frame
         self.controllers_to_set_frame_current_frame = bpy.context.scene.frame_current
@@ -341,30 +329,30 @@ class MidiController_Midi():
         self.running = True
 
     def refresh_available_midi_ports(self):
-        self.log.info(f"Refreshing available midi ports")
-        self.available_ports = rtmidi.MidiIn().get_ports()
+        self.log.info(f"Refreshing available midi ports v2")
+        self.available_ports = get_in_ports()
 
     def open_midi(self, port,):
         # Connect to the midi port (callback method)
         try:
-            self.midi_input, port_name = open_midiinput(port)
-            self.midi_input.set_callback(
-                MidiController_InputHandler(self, port_name))
+            self.midi_input.ignore_types(midi_sysex=True, midi_time=True, midi_sense=True)
+            self.midi_input.open_port(port)
+            self.midi_input.callback = self.parse_midi_messages_update
         except (EOFError, KeyboardInterrupt):
             self.log.critical(f"Could not open midi controller!")
             return None
 
         # self.midi_input.open_port(self.midi_port) <- old method
-        self.midi_open = self.midi_input.is_port_open()
+        self.midi_open = True
 
         # if opening port is successful set the connection information
         self.connected_port = port
-        self.connected_controller = port_name
+        self.connected_controller = self.midi_input.get_port_name(port)
 
         # Ensure that the correct configuration for the midi controller is loaded in.
         self.load()
 
-    def parse_midi_messages_update(self, data):
+    def parse_midi_messages_update(self, data, _):
         """Handle midi messages from midi controller.
         """
         try:
@@ -1269,9 +1257,7 @@ class MidiController_Midi():
         # ensure that all that is currently known is saved before closing
         self.save()
         if self.midi_open:
-            if self.midi_input.is_port_open():
-                self.midi_input.close_port()
-            self.midi_input.delete()
+            self.midi_input.close_port()
             self.log.info(
                 f"Closed midi controller: {self.connected_controller}")
             self.connected_controller = ""
